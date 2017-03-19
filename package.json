@@ -1,0 +1,11 @@
+{
+  "name": "membrane",
+  "version": "1.0.0",
+  "main": "membrane.js",
+  "scripts": {
+    "test": "mocha"
+  },
+  "devDependencies": {
+    "mocha": "^3.2.0"
+  }
+}
