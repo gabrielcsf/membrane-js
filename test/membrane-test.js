@@ -17,8 +17,6 @@ describe('Membrane Tests', function() {
 				assert.equal(typeof wrappedFunc, 'function'); // types are kept the same
 				assert.notEqual(foo, wrappedFunc); // original instance and proxy are different objects
 				assert.equal(foo(), wrappedFunc()); // equal results
-
-				console.log(membrane.functionCalls);	
 			});
 	});
 
@@ -31,10 +29,7 @@ describe('Membrane Tests', function() {
 				assert.equal(typeof wrappedObj, 'object'); // types are kept the same
 				assert.notEqual(obj, wrappedObj); // original instance and proxy are different objects
 				assert.notEqual(obj.foo, wrappedObj.foo); // original instance and proxy are different objects
-
 				assert.equal(obj.foo(), wrappedObj.foo()); // equal results
-
-				console.log(membrane.functionCalls);	
 		});
 	});
 
@@ -46,41 +41,6 @@ describe('Membrane Tests', function() {
 			assert.notEqual(foo, fooMembrane); // original instance and proxy are different objects
 
 			assert.equal(foo(), fooMembrane()); // equal results
-
-			console.log(membrane.functionCalls);			
-		});
-	});
-
-	describe('when something', function() {
-		it('should something', function() {
-			var foo = function(){ 
-				var x=function(){return 4;}
-				x();
-				return "foo"; 
-			};
-			var bar = membrane.create({a:function() { return 3; }}, "bar");
-			foo();
-			bar.a();
-
-			console.log(membrane.functionCalls);
-		});
-	});
-
-	describe('when creating a membrane around a module that require the fs module', function() {
-		it('should identify cross module function calls', function() {
-			var module = {};
-
-			module.execute = membrane.create(function() {
-				var fs = membrane.create(require("fs"), "fs");
-				fs.readdir("/Users/gferreir/workspaces/jate", function(err, items) {
-					for (var i=0; i<items.length; i++) {
-						//console.log("file: " + items[i]);
-					}
-				})
-			}, "testModule");
-
-			module.execute();
-			console.log(membrane.functionCalls);
 		});
 	});
 
@@ -99,11 +59,45 @@ describe('Membrane Tests', function() {
 		});
 	});
 
-	describe('when.. global object', function() {
-		it('should...', function() {
+	describe('when executing a function defined locally in a wrapped function', function() {
+		it('should not account for local function calls', function() {
+			var foo = function(){ 
+				var x=function(){return 4;}
+				x();
+				return "foo"; 
+			};
+			var fooMembrane = membrane.create(foo, "foo");
+			fooMembrane();
+
+			assert(membrane.functionCalls.get("foo"), 1);	
+		});
+	});
+
+	describe('when creating a membrane around a module that require the fs module', function() {
+		it('should account for cross module function calls', function() {
+			var module = {};
+			module.execute = function() {
+				var fs = membrane.create(require("fs"), "fs");
+				fs.readdir("/Users/gferreir/workspaces/jate", function(err, items) {
+					for (var i=0; i<items.length; i++) {
+						//console.log("file: " + items[i]);
+					}
+				})
+			};
+			var m = membrane.create(module, "testModule");
+			m.execute();
+
+			assert(membrane.functionCalls.get("testModule.execute"), 1);	
+			assert(membrane.functionCalls.get("fs.readdir"), 1);	
+		});
+	});
+
+	describe('when executing functions that are properties of the wrapped global object', function() {
+		it('should account for function calls', function() {
 			var g =  membrane.create(global, "global");
 			g.console.log("test");
-			
+
+			assert(membrane.functionCalls.get("global.console.log"), 1);
 		});
 	});
 
