@@ -8,7 +8,7 @@ describe('Membrane Tests', function() {
 	beforeEach(function() {
 		// initializers
 		membrane.functionCalls = new Map(); 
-	    foo = function(){ return "foo"; };
+	  foo = function(){ return "foo"; };
 	});
 
 	describe('when creating a membrane around a function', function() {
@@ -89,6 +89,30 @@ describe('Membrane Tests', function() {
 
 			assert(membrane.functionCalls.get("testModule.execute"), 1);	
 			assert(membrane.functionCalls.get("fs.readdir"), 1);	
+		});
+	});
+
+	describe('when creating a membrane around a module that require the fs module', function() {
+		it('should account for cross module function calls', function() {
+			var module = {};
+			module.execute = function() {
+				var fs = membrane.create({ 
+					foo:function(x) {
+						console.log("foo");
+						x();
+						console.log("foo-end");
+					}
+				}, "fooModule");
+				fs.foo(function() {
+					console.log("callback");
+				})
+			};
+			var m = membrane.create(module, "testModule");
+			m.execute();
+
+			assert(membrane.functionCalls.get("testModule.execute"), 1);	
+			assert(membrane.functionCalls.get("fooModule.foo"), 1);	
+			assert(membrane.functionCalls.get("fooModule.x"), 1);	// currently, callback functions are not wrapped
 		});
 	});
 
