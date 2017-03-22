@@ -8,11 +8,11 @@ describe('Membrane Tests', function() {
 	beforeEach(function() {
 		// initializers
 		membrane.functionCalls = new Map(); 
-	  foo = function(){ return "foo"; };
 	});
 
 	describe('when creating a membrane around a function', function() {
 		it('should transparently return a wrapped function', function() {
+				foo = function(){ return "foo"; };
 				var wrappedFunc = membrane.create(foo, "foo");
 				assert.equal(typeof wrappedFunc, 'function'); // types are kept the same
 				assert.notEqual(foo, wrappedFunc); // original instance and proxy are different objects
@@ -23,6 +23,7 @@ describe('Membrane Tests', function() {
 
 	describe('when creating a membrane around an object that contains a function', function() {
 			it('should transparently return a membrane wrapping the object and the internal function', function() {
+				foo = function(){ return "foo"; };
 				var obj = { 'foo' : foo };
 
 				var wrappedObj = membrane.create(obj, "foo");
@@ -45,7 +46,7 @@ describe('Membrane Tests', function() {
 	});
 
 	describe('when wrapping an object, copying it to a dry object, and executing function foo in both', function() {
-		it('should count the function calls as being from the same wrapped object', function() {
+		it('should account for both function calls', function() {
 			var x = { 'foo' : foo };
 			var y = { 'x' : x };
 
@@ -55,64 +56,90 @@ describe('Membrane Tests', function() {
 			yMembrane.x.foo();
 			dryX.foo();
 
-			assert(membrane.functionCalls.get("y.x.foo"), 2);	
+			assert(membrane.functionCalls.get("y.x.foo@<mainContext>"), 2);	
 		});
 	});
 
 	describe('when executing a function defined locally in a wrapped function', function() {
 		it('should not account for local function calls', function() {
-			var foo = function(){ 
+			var fooModule = {};
+			fooModule.foo = function(){ 
 				var x=function(){return 4;}
 				x();
 				return "foo"; 
 			};
-			var fooMembrane = membrane.create(foo, "foo");
-			fooMembrane();
+			var fooMembrane = membrane.create(fooModule, "fooModule");
+			fooMembrane.foo();
 
-			assert(membrane.functionCalls.get("foo"), 1);	
+			assert(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 1);	
 		});
 	});
 
 	describe('when creating a membrane around a module that require the fs module', function() {
 		it('should account for cross module function calls', function() {
-			var module = {};
-			module.execute = function() {
+			var testModule = {};
+			testModule.execute = function() {
 				var fs = membrane.create(require("fs"), "fs");
-				fs.readdir("/Users/gferreir/workspaces/jate", function(err, items) {
+				fs.readdir("/home", function(err, items) {
 					for (var i=0; i<items.length; i++) {
-						//console.log("file: " + items[i]);
+						console.log("file: " + items[i]);
 					}
 				})
 			};
-			var m = membrane.create(module, "testModule");
-			m.execute();
+			var wrappedTestModule = membrane.create(testModule, "testModule");
+			wrappedTestModule.execute();
 
-			assert(membrane.functionCalls.get("testModule.execute"), 1);	
-			assert(membrane.functionCalls.get("fs.readdir"), 1);	
+			assert(membrane.functionCalls.get("testModule.execute@<mainContext>"), 1);	
+			assert(membrane.functionCalls.get("fs.readdir@testModule.execute"), 1);	
 		});
 	});
 
-	describe('when creating a membrane around a module that require the fs module', function() {
-		it('should account for cross module function calls', function() {
-			var module = {};
-			module.execute = function() {
-				var fs = membrane.create({ 
-					foo:function(x) {
+	describe('when creating a membrane around a module that accepts callback functions as parameters', function() {
+		it('should not account for the callback function call', function() {
+
+				var fooModule = {};
+				fooModule.foo = function(x) {
 						console.log("foo");
 						x();
 						console.log("foo-end");
-					}
-				}, "fooModule");
-				fs.foo(function() {
-					console.log("callback");
-				})
-			};
-			var m = membrane.create(module, "testModule");
-			m.execute();
+				}
 
-			assert(membrane.functionCalls.get("testModule.execute"), 1);	
-			assert(membrane.functionCalls.get("fooModule.foo"), 1);	
-			assert(membrane.functionCalls.get("fooModule.x"), 1);	// currently, callback functions are not wrapped
+				var fooMembrane = membrane.create(fooModule, "fooModule");
+				fooMembrane.foo(function(){});
+				fooMembrane.foo(function() {
+					console.log("callback");
+				});
+
+			  assert(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 1);	
+			  assert.strictEqual(membrane.functionCalls.get("fooModule.x@<mainContext>"), undefined);	// currently, callback functions are not wrapped
+		});
+	});
+
+	describe('when creating a membrane around a module that accepts wrapped callback functions as parameters', function() {
+		it('should account for the callback function call', function() {
+
+				var fooModule = {};
+				fooModule.foo = function(x) {
+						console.log("foo");
+						x();
+						console.log("foo-end");
+				}
+
+				var barModule = {};
+				barModule.bar = function() {
+					console.log("callback");
+				}
+
+				var fooMembrane = membrane.create(fooModule, "fooModule");
+				var barMembrane = membrane.create(barModule, "barModule");
+
+
+				fooMembrane.foo(barMembrane.bar);
+				barMembrane.bar();
+
+			 assert(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 1);	
+			 assert(membrane.functionCalls.get("barModule.bar@<mainContext>"), 1);	
+			 assert(membrane.functionCalls.get("barModule.bar@fooModule.foo"), 1);	
 		});
 	});
 
@@ -121,7 +148,7 @@ describe('Membrane Tests', function() {
 			var g =  membrane.create(global, "global");
 			g.console.log("test");
 
-			assert(membrane.functionCalls.get("global.console.log"), 1);
+			assert(membrane.functionCalls.get("global.console.log@<mainContext>"), 1);
 		});
 	});
 

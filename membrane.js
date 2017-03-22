@@ -1,3 +1,7 @@
+function contextifyFunctioncall(functionCall, context) {
+    return functionCall + "@" + context;
+}
+
 var membrane = {};
 var membraneContext = [];
 
@@ -24,14 +28,16 @@ membrane.create = function(initTarget, moduleName) {
     apply : function (target, thisArg, argumentsList) {
 
           var currentMembraneContext = membraneContext[membraneContext.length-1];
-          var currentContext = currentMembraneContext ? currentMembraneContext : "<rootModule>";
+          var currentContext = currentMembraneContext ? currentMembraneContext : "<mainContext>";
 
-          console.log("calling function: " + objectName + " from context " + currentContext);
+          console.log("> calling function: " + objectName + " from context " + currentContext);
+
           membraneContext.push(objectName);
 
-          var counter = membrane.functionCalls.get(objectName);
-          counter = counter ? counter+1 : 1;
-          membrane.functionCalls.set(objectName, counter);
+          var counter = membrane.functionCalls.get(contextifyFunctioncall(objectName, currentContext));
+          counter = counter ? counter+ 1 : 1;
+
+          membrane.functionCalls.set(contextifyFunctioncall(objectName, currentContext), counter);
 
           var fCall = Reflect.apply(target, thisArg, argumentsList);
           membraneContext.pop();
