@@ -1,6 +1,4 @@
-# README #
-
-Node.js package that implements the membrane pattern with proxies.
+# Node.js package that implements the membrane pattern with proxies.#
 
 ## Installation ##
 
