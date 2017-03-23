@@ -1,7 +1,7 @@
 var assert = require('assert');
 var membrane = require('../membrane');
 
-describe('Membrane Tests', function() {
+describe('Membrane tests', function() {
 
 	var foo;
 
@@ -60,6 +60,53 @@ describe('Membrane Tests', function() {
 		});
 	});
 
+	describe('when wrapping an module that call functions using thisArg argument', function() {
+				it('should not throw TypeError', function() {
+
+			var testModule = {};
+			testModule.foo = function() {
+				return "foo";
+			}
+
+			testModule.objectX = {
+			  propertyOne: 'yoda',
+			  propertyTwo: 'jedi',
+			};
+
+			testModule.execute = function() {
+			  Object.keys({ propertyOne :"a", propertyTwo : "b"}).forEach(function(key) {
+			    console.log(this[key]);
+			  }, testModule.objectX); // last arg is `thisArg`
+			}
+
+			var membraneTest = membrane.create(testModule, "testModule");
+			membraneTest.execute();
+			assert(membrane.functionCalls.get("testModule.execute@<mainContext>"), 1);	
+		});
+	});
+
+	describe('when wrapping a module that has properties binded to C code', function() {
+		it('should not ', function() {
+			var membraneOS = membrane.create(require('os'), "osModule");
+			console.log(membraneOS.type());
+
+			assert(membrane.functionCalls.get("osModule.type@<mainContext>"), 1);	
+		});
+	});
+
+	describe('when executing a function in a wrapped module', function() {
+		it('should account for the function call', function() {
+			var fooModule = {};
+			fooModule.foo = function(){ 
+				return "foo"; 
+			};
+			var fooMembrane = membrane.create(fooModule, "fooModule");
+			fooMembrane.foo();
+
+			assert(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 1);	
+		});
+	});
+
 	describe('when executing a function defined locally in a wrapped function', function() {
 		it('should not account for local function calls', function() {
 			var fooModule = {};
@@ -72,13 +119,16 @@ describe('Membrane Tests', function() {
 			fooMembrane.foo();
 
 			assert(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 1);	
+			assert.equal(membrane.functionCalls.get("fooModule.x@<mainContext>"), undefined);	// local functions and function passed as parameters are not wrapped
 		});
 	});
 
 	describe('when creating a membrane around a module that require the fs module', function() {
 		it('should account for cross module function calls', function() {
+
 			var testModule = {};
 			testModule.execute = function() {
+
 				var fs = membrane.create(require("fs"), "fs");
 				fs.readdir("/home", function(err, items) {
 					for (var i=0; i<items.length; i++) {
@@ -86,11 +136,13 @@ describe('Membrane Tests', function() {
 					}
 				})
 			};
+
 			var wrappedTestModule = membrane.create(testModule, "testModule");
 			wrappedTestModule.execute();
 
 			assert(membrane.functionCalls.get("testModule.execute@<mainContext>"), 1);	
 			assert(membrane.functionCalls.get("fs.readdir@testModule.execute"), 1);	
+
 		});
 	});
 
@@ -111,7 +163,7 @@ describe('Membrane Tests', function() {
 				});
 
 			  assert(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 1);	
-			  assert.strictEqual(membrane.functionCalls.get("fooModule.x@<mainContext>"), undefined);	// currently, callback functions are not wrapped
+			  assert.equal(membrane.functionCalls.get("fooModule.x@<mainContext>"), undefined);	// local functions and function passed as parameters are not wrapped
 		});
 	});
 
@@ -149,6 +201,18 @@ describe('Membrane Tests', function() {
 			g.console.log("test");
 
 			assert(membrane.functionCalls.get("global.console.log@<mainContext>"), 1);
+		});
+	});
+
+	describe('when executing Function.prototype.toString in a wrapped module', function() {
+		it('should execute the native toString function and ignore wrapped object', function() {
+			var fooModule = {};
+			fooModule.foo = Function.prototype.toString;
+
+			var fooMembrane = membrane.create(fooModule, "fooModule");
+			fooMembrane.foo();
+
+			assert(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 1);	
 		});
 	});
 
