@@ -1,27 +1,11 @@
 # README #
 
-### What is this repository for? ###
+Node.js package that implements the membrane pattern with proxies.
 
-* Quick summary
-* Version
-* [Learn Markdown](https://bitbucket.org/tutorials/markdowndemo)
+## Installation ##
 
-### How do I get set up? ###
+Run 'npm install' on the root directory to download all dependencies.
 
-* Summary of set up
-* Configuration
-* Dependencies
-* Database configuration
-* How to run tests
-* Deployment instructions
+## Running tests ##
 
-### Contribution guidelines ###
-
-* Writing tests
-* Code review
-* Other guidelines
-
-### Who do I talk to? ###
-
-* Repo owner or admin
-* Other community or team contact
+Run 'npm test' to run all tests in the test directory.
