@@ -1,5 +1,3 @@
-// CODE USED TO TEST SPECIAL CASES (IGNORE IT)
-// ------------------------- BEGIN --------------------------- 
 var DoubleWeakMap = function() {
   this.map = new WeakMap();
   this.a = [];
@@ -69,10 +67,9 @@ var specialFunctions = {
     pResolve : Promise.resolve,
     functionToString : Function.prototype.toString,        
 };
-// ------------------------- END --------------------------- 
 
 var membrane = {};
-membrane.debug = true;
+membrane.debug = false;
 membrane.context = [];
 
 membrane.functionCalls = new Map(); 

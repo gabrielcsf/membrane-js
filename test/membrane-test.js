@@ -216,13 +216,32 @@ describe('Membrane tests', function() {
 			var fooMembrane = membrane.create(fooModule, "fooModule");
 			fooMembrane.bar();
 
-			assert.equal(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 1);	// function calls using `this` reference are not tracked yet
 			assert.equal(membrane.functionCalls.get("fooModule.bar@<mainContext>"), 1);	
+			assert.equal(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 1);	// function calls using `this` reference are not tracked yet
 
 		});
 	});
 
-	describe('when executing function that exists inside an array', function() {
+	describe('when executing function that is part of the module and exists inside an array of the module', function() {
+		it('should account for the function execution', function() {
+			var fooModule = {};
+
+			fooModule.foo = foo;
+
+			fooModule.bar = new Array();
+			fooModule.bar.push(fooModule.foo);
+
+			var fooMembrane = membrane.create(fooModule, "fooModule");
+			fooMembrane.bar[0]();
+
+			assert.equal(membrane.functionCalls.get("fooModule.bar.0@<mainContext>"), 1);	
+			assert.equal(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 1);	// function calls of functions referenced in arrays are not tracked yet
+
+
+		});
+	});
+
+	describe('when executing function that exists inside an array of the module', function() {
 		it('should account for the function execution', function() {
 			var fooModule = {};
 
@@ -232,10 +251,9 @@ describe('Membrane tests', function() {
 			var fooMembrane = membrane.create(fooModule, "fooModule");
 			fooMembrane.bar[0]();
 
-			assert.equal(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 1);	// function calls of functions referenced in arrays are not tracked yet
 			assert.equal(membrane.functionCalls.get("fooModule.bar.0@<mainContext>"), 1);	
+			assert.equal(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 1);	// function calls of functions referenced in arrays are not tracked yet
 
 		});
 	});
-
 });
