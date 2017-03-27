@@ -11,7 +11,8 @@ describe('Membrane tests [on simple packages]', function() {
 			membraneLeftPad(1, 2, '0');
 			membraneLeftPad(17, 5, 0);
 
-			assert(membrane.functionCalls.get("leftPad@<mainContext>"), 2);	
+			console.log(membrane.functionCalls.get("leftPad@<mainContext>"));
+			assert.equal(membrane.functionCalls.get("leftPad@<mainContext>"), 4);	
 		});
 	});
 

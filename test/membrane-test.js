@@ -7,12 +7,12 @@ describe('Membrane tests', function() {
 
 	beforeEach(function() {
 		// initializers
+		foo = function(){ return "foo"; };
 		membrane.functionCalls = new Map(); 
 	});
 
 	describe('when creating a membrane around a function', function() {
-		it('should transparently return a wrapped function', function() {
-				foo = function(){ return "foo"; };
+		it('should transparently return a wrapped function', function() { 
 				var wrappedFunc = membrane.create(foo, "foo");
 				assert.equal(typeof wrappedFunc, 'function'); // types are kept the same
 				assert.notEqual(foo, wrappedFunc); // original instance and proxy are different objects
@@ -23,7 +23,6 @@ describe('Membrane tests', function() {
 
 	describe('when creating a membrane around an object that contains a function', function() {
 			it('should transparently return a membrane wrapping the object and the internal function', function() {
-				foo = function(){ return "foo"; };
 				var obj = { 'foo' : foo };
 
 				var wrappedObj = membrane.create(obj, "foo");
@@ -31,17 +30,6 @@ describe('Membrane tests', function() {
 				assert.notEqual(obj, wrappedObj); // original instance and proxy are different objects
 				assert.notEqual(obj.foo, wrappedObj.foo); // original instance and proxy are different objects
 				assert.equal(obj.foo(), wrappedObj.foo()); // equal results
-		});
-	});
-
-	describe('when creating a membrane around a function', function() {
-		it('should transparently return a wrapped function', function() {
-			var fooMembrane = membrane.create(foo, "foo");
-
-			assert.equal(typeof fooMembrane, 'function'); // types are kept the same
-			assert.notEqual(foo, fooMembrane); // original instance and proxy are different objects
-
-			assert.equal(foo(), fooMembrane()); // equal results
 		});
 	});
 
@@ -56,7 +44,7 @@ describe('Membrane tests', function() {
 			yMembrane.x.foo();
 			dryX.foo();
 
-			assert(membrane.functionCalls.get("y.x.foo@<mainContext>"), 2);	
+			assert.equal(membrane.functionCalls.get("y.x.foo@<mainContext>"), 2);	
 		});
 	});
 
@@ -81,7 +69,7 @@ describe('Membrane tests', function() {
 
 			var membraneTest = membrane.create(testModule, "testModule");
 			membraneTest.execute();
-			assert(membrane.functionCalls.get("testModule.execute@<mainContext>"), 1);	
+			assert.equal(membrane.functionCalls.get("testModule.execute@<mainContext>"), 1);	
 		});
 	});
 
@@ -90,7 +78,7 @@ describe('Membrane tests', function() {
 			var membraneOS = membrane.create(require('os'), "osModule");
 			console.log(membraneOS.type());
 
-			assert(membrane.functionCalls.get("osModule.type@<mainContext>"), 1);	
+			assert.equal(membrane.functionCalls.get("osModule.type@<mainContext>"), 1);	
 		});
 	});
 
@@ -103,7 +91,7 @@ describe('Membrane tests', function() {
 			var fooMembrane = membrane.create(fooModule, "fooModule");
 			fooMembrane.foo();
 
-			assert(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 1);	
+			assert.equal(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 1);	
 		});
 	});
 
@@ -118,7 +106,7 @@ describe('Membrane tests', function() {
 			var fooMembrane = membrane.create(fooModule, "fooModule");
 			fooMembrane.foo();
 
-			assert(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 1);	
+			assert.equal(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 1);	
 			assert.equal(membrane.functionCalls.get("fooModule.x@<mainContext>"), undefined);	// local functions and function passed as parameters are not wrapped
 		});
 	});
@@ -140,8 +128,8 @@ describe('Membrane tests', function() {
 			var wrappedTestModule = membrane.create(testModule, "testModule");
 			wrappedTestModule.execute();
 
-			assert(membrane.functionCalls.get("testModule.execute@<mainContext>"), 1);	
-			assert(membrane.functionCalls.get("fs.readdir@testModule.execute"), 1);	
+			assert.equal(membrane.functionCalls.get("testModule.execute@<mainContext>"), 1);	
+			assert.equal(membrane.functionCalls.get("fs.readdir@testModule.execute"), 1);	
 
 		});
 	});
@@ -162,7 +150,7 @@ describe('Membrane tests', function() {
 					console.log("callback");
 				});
 
-			  assert(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 1);	
+			  assert.equal(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 2);	
 			  assert.equal(membrane.functionCalls.get("fooModule.x@<mainContext>"), undefined);	// local functions and function passed as parameters are not wrapped
 		});
 	});
@@ -189,18 +177,18 @@ describe('Membrane tests', function() {
 				fooMembrane.foo(barMembrane.bar);
 				barMembrane.bar();
 
-			 assert(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 1);	
-			 assert(membrane.functionCalls.get("barModule.bar@<mainContext>"), 1);	
-			 assert(membrane.functionCalls.get("barModule.bar@fooModule.foo"), 1);	
+			 assert.equal(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 1);	
+			 assert.equal(membrane.functionCalls.get("barModule.bar@<mainContext>"), 1);	
+			 assert.equal(membrane.functionCalls.get("barModule.bar@fooModule.foo"), 1);	
 		});
 	});
 
 	describe('when executing functions that are properties of the wrapped global object', function() {
 		it('should account for function calls', function() {
 			var g =  membrane.create(global, "global");
-			g.console.log("test");
+			g.console.log("log");
 
-			assert(membrane.functionCalls.get("global.console.log@<mainContext>"), 1);
+			assert.equal(membrane.functionCalls.get("global.console.log@<mainContext>"), 1);
 		});
 	});
 
@@ -212,7 +200,41 @@ describe('Membrane tests', function() {
 			var fooMembrane = membrane.create(fooModule, "fooModule");
 			fooMembrane.foo();
 
-			assert(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 1);	
+			assert.equal(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 1);	
+		});
+	});
+
+	describe('when executing function using `this` reference', function() {
+		it('should account for the function execution', function() {
+			var fooModule = {};
+
+			fooModule.foo = foo;
+			fooModule.bar = function() {
+				this.foo();
+			}
+
+			var fooMembrane = membrane.create(fooModule, "fooModule");
+			fooMembrane.bar();
+
+			assert.equal(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 1);	// function calls using `this` reference are not tracked yet
+			assert.equal(membrane.functionCalls.get("fooModule.bar@<mainContext>"), 1);	
+
+		});
+	});
+
+	describe('when executing function that exists inside an array', function() {
+		it('should account for the function execution', function() {
+			var fooModule = {};
+
+			fooModule.bar = new Array();
+			fooModule.bar.push(foo);
+
+			var fooMembrane = membrane.create(fooModule, "fooModule");
+			fooMembrane.bar[0]();
+
+			assert.equal(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 1);	// function calls of functions referenced in arrays are not tracked yet
+			assert.equal(membrane.functionCalls.get("fooModule.bar.0@<mainContext>"), 1);	
+
 		});
 	});
 
