@@ -15,9 +15,4 @@ describe('Membrane tests [on simple packages]', function() {
 			assert.equal(membrane.functionCalls.get("leftPad@<mainContext>"), 4);	
 		});
 	});
-
-
-
-
-
 });

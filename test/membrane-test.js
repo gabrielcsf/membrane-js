@@ -2,7 +2,6 @@ var assert = require('assert');
 var membrane = require('../membrane');
 
 describe('Membrane tests', function() {
-
 	var foo;
 
 	beforeEach(function() {
@@ -30,6 +29,20 @@ describe('Membrane tests', function() {
 				assert.notEqual(obj, wrappedObj); // original instance and proxy are different objects
 				assert.notEqual(obj.foo, wrappedObj.foo); // original instance and proxy are different objects
 				assert.equal(obj.foo(), wrappedObj.foo()); // equal results
+		});
+	});
+
+	describe('when creating a membrane around an object and trying to access its prototype', function() {
+			it('should handle', function() {
+				var obj = { 'foo' : foo };
+
+				var wrappedObj = membrane.create(obj, "foo");
+				wrappedObj.__proto__.toString();
+
+				// assert.equal(typeof wrappedObj, 'object'); // types are kept the same
+				// assert.notEqual(obj, wrappedObj); // original instance and proxy are different objects
+				// assert.notEqual(obj.foo, wrappedObj.foo); // original instance and proxy are different objects
+				// assert.equal(obj.foo(), wrappedObj.foo()); // equal results
 		});
 	});
 
@@ -73,14 +86,14 @@ describe('Membrane tests', function() {
 		});
 	});
 
-	describe('when wrapping a module that has properties binded to C code', function() {
-		it('should not ', function() {
-			var membraneOS = membrane.create(require('os'), "osModule");
-			console.log(membraneOS.type());
+	// describe('when wrapping a module that has properties binded to C code', function() {
+	// 	it('should not ', function() {
+	// 		var membraneOS = membrane.create(require('os'), "osModule");
+	// 		console.log(membraneOS.type());
 
-			assert.equal(membrane.functionCalls.get("osModule.type@<mainContext>"), 1);	
-		});
-	});
+	// 		assert.equal(membrane.functionCalls.get("osModule.type@<mainContext>"), 1);	
+	// 	});
+	// });
 
 	describe('when executing a function in a wrapped module', function() {
 		it('should account for the function call', function() {
@@ -215,9 +228,10 @@ describe('Membrane tests', function() {
 
 			var fooMembrane = membrane.create(fooModule, "fooModule");
 			fooMembrane.bar();
+			fooMembrane.foo();
 
 			assert.equal(membrane.functionCalls.get("fooModule.bar@<mainContext>"), 1);	
-			assert.equal(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 1);	// function calls using `this` reference are not tracked yet
+			assert.equal(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 1);	// function call this.foo() is not supposed to be tracked
 
 		});
 	});
@@ -254,6 +268,80 @@ describe('Membrane tests', function() {
 			assert.equal(membrane.functionCalls.get("fooModule.bar.0@<mainContext>"), 1);	
 			assert.equal(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 1);	// function calls of functions referenced in arrays are not tracked yet
 
+		});
+	});
+
+	describe('when executing function that exists inside an array of the module', function() {
+		it('should account for the function execution', function() {
+				var foo = function() { return "foo"; };
+				var arr = [foo, 'b', 'c'];
+				var obj = { arr: arr };
+				var membraneObj = membrane.create(obj, "objModule");
+
+				assert.ok(membraneObj.arr.filter(function(e) { return e == 'b'; }));
+		});
+	});
+
+	describe('when..', function() {
+		it('should ..', function() {
+			var membraneFs = membrane.create(require('fs'));
+			function clone (obj) {
+			  if (obj === null || typeof obj !== 'object')
+			    return obj
+
+			  if (obj instanceof Object)
+			    var copy = { __proto__: obj.__proto__ }
+			  else
+			    var copy = Object.create(null);
+			  
+			  Object.getOwnPropertyNames(obj).forEach(function (key) {
+			    Object.defineProperty(copy, key, Object.getOwnPropertyDescriptor(obj, key))
+			  });
+			  return copy;
+			}
+
+			var membraneCopy = clone(membraneFs);
+			membraneCopy.readdir("/Users/", function(err, items) {
+			    for (var i=0; i<items.length; i++) {
+			      console.log("file: " + items[i]);
+			    }
+			});
+	 	});
+	});  
+
+	describe('when..2', function() {
+		it('should ..2', function() {
+			var membraneFs = membrane.create(require('fs'));
+			assert.ok(membraneFs.constants);
+	 	});
+	}); 	       
+});
+
+describe('Membrane utils tests', function() {
+
+	describe('when checking if object is primitive', function() {
+		it('should return true for integers, booleans, strings, NaN, undefined, null, and Infinity and false otherwise', function() {
+			assert.ok(membrane.isPrimitive(null));
+			assert.ok(membrane.isPrimitive(undefined));
+			assert.ok(membrane.isPrimitive(1));
+			assert.ok(membrane.isPrimitive('foo'));
+			assert.ok(membrane.isPrimitive(true));
+			assert.ok(membrane.isPrimitive(false));
+			assert.ok(membrane.isPrimitive(NaN));
+			assert.ok(membrane.isPrimitive(Infinity));
+
+			assert.equal(membrane.isPrimitive({}), false);
+			assert.equal(membrane.isPrimitive([]), false);
+			assert.equal(membrane.isPrimitive(/./), false);
+			assert.equal(membrane.isPrimitive(global), false);
+			assert.equal(membrane.isPrimitive(function() {}), false);
+			assert.equal(membrane.isPrimitive(new function() {}), false);
+			assert.equal(membrane.isPrimitive(new Number), false);
+			assert.equal(membrane.isPrimitive(new String), false);
+			assert.equal(membrane.isPrimitive(new Boolean), false);
+			assert.equal(membrane.isPrimitive(new Date), false);
+			assert.equal(membrane.isPrimitive(new Error), false);
+			assert.equal(membrane.isPrimitive(Object.create(null)), false);
 		});
 	});
 });
