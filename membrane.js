@@ -85,40 +85,39 @@ membrane.isWrapped = function(obj) {
   return mapWrapped2Unwrapped.has(obj);
 }
 
-// used when getOwnPropertyDescriptor trap is triggered
-membrane.sync = function(obj, objCopy, property) {
-try {
-    var objDesc = Object.getOwnPropertyDescriptor(obj, property);
-    var objCopyDesc = Object.getOwnPropertyDescriptor(objCopy, property);
-    if (!objCopyDesc || objCopyDesc.configurable) {           
-      if (objDesc.get || objDesc.set) {
-        Object.defineProperty(objCopy, property, {configurable:true, get:(objDesc.get ? Function.prototype.bind.call(objDesc.get,obj) : undefined), set:(objDesc.set ? Function.prototype.bind.call(objDesc.set,obj) : undefined), enumerable:objDesc.enumerable});
-      } else {
-        Object.defineProperty(objCopy, property, {configurable:true, writable:true, value:objDesc.value, enumerable:objDesc.enumerable});
-      }
-    } else {
-      objCopy[n] = obj[n]; // TODO: check this, it was obj[e]
-    }
-  }
-  catch(e) { // if there is a typeError here, it is possible that we are dealing with some built-in object, try to sync all properties
-    var objProps = Object.getOwnPropertyNames(obj);
-    objProps.forEach(function(e) {
-      var objDesc = Object.getOwnPropertyDescriptor(obj,e);
-      var objCopyDesc = Object.getOwnPropertyDescriptor(objCopy, e);
-      if (!objCopyDesc || objCopyDesc.configurable) {           
-        if (objDesc.get || objDesc.set) {
-          Object.defineProperty(objCopy, e, {configurable:true, get:(objDesc.get ? Function.prototype.bind.call(objDesc.get,obj) : undefined), set:(objDesc.set ? Function.prototype.bind.call(objDesc.set,obj) : undefined), enumerable:objDesc.enumerable});
-        } else {
-          Object.defineProperty(objCopy, e, {configurable:true, writable:true, value:objDesc.value, enumerable:objDesc.enumerable});
-        }
-      }
-      else {
-        objCopy[e] = obj[e];
-      }
-    });
-  }
-}
-
+// // used when getOwnPropertyDescriptor trap is triggered
+// membrane.sync = function(obj, objCopy, property) {
+// try {
+//     var objDesc = Object.getOwnPropertyDescriptor(obj, property);
+//     var objCopyDesc = Object.getOwnPropertyDescriptor(objCopy, property);
+//     if (!objCopyDesc || objCopyDesc.configurable) {           
+//       if (objDesc.get || objDesc.set) {
+//         Object.defineProperty(objCopy, property, {configurable:true, get:(objDesc.get ? Function.prototype.bind.call(objDesc.get,obj) : undefined), set:(objDesc.set ? Function.prototype.bind.call(objDesc.set,obj) : undefined), enumerable:objDesc.enumerable});
+//       } else {
+//         Object.defineProperty(objCopy, property, {configurable:true, writable:true, value:objDesc.value, enumerable:objDesc.enumerable});
+//       }
+//     } else {
+//       objCopy[n] = obj[n]; // TODO: check this, it was obj[e]
+//     }
+//   }
+//   catch(e) { // if there is a typeError here, it is possible that we are dealing with some built-in object, try to sync all properties
+//     var objProps = Object.getOwnPropertyNames(obj);
+//     objProps.forEach(function(e) {
+//       var objDesc = Object.getOwnPropertyDescriptor(obj,e);
+//       var objCopyDesc = Object.getOwnPropertyDescriptor(objCopy, e);
+//       if (!objCopyDesc || objCopyDesc.configurable) {           
+//         if (objDesc.get || objDesc.set) {
+//           Object.defineProperty(objCopy, e, {configurable:true, get:(objDesc.get ? Function.prototype.bind.call(objDesc.get,obj) : undefined), set:(objDesc.set ? Function.prototype.bind.call(objDesc.set,obj) : undefined), enumerable:objDesc.enumerable});
+//         } else {
+//           Object.defineProperty(objCopy, e, {configurable:true, writable:true, value:objDesc.value, enumerable:objDesc.enumerable});
+//         }
+//       }
+//       else {
+//         objCopy[e] = obj[e];
+//       }
+//     });
+//   }
+// }
 
 membrane.create = function(initTarget, moduleName) {
 
@@ -133,17 +132,6 @@ membrane.create = function(initTarget, moduleName) {
   var wrap = function(obj, objectName) {
   
     if (membrane.isPrimitive(obj)) return obj; // primitives are passed through
-       
-    var specialFunction = undefined;
-    specialFunctions.forEach(function(elem) {
-      if (obj == elem) {
-        specialFunction = obj;
-      }
-    });
-    if (specialFunction != undefined) {
-      if (membrane.debug) console.log("[DEBUG] getOwnPropertyDescriptor trap returning unwrapped special function: " + specialFunction);
-      return specialFunction;
-    }
 
     // TODO: handle special functions, native objects
     // var objectToBeWrapped = obj;
@@ -234,19 +222,19 @@ membrane.create = function(initTarget, moduleName) {
         //if (membrane.debug) console.log(">>> trap: getOwnPropertyDescriptor");
         // membrane.sync(obj, objectToWrap, prop);
 
-        var specialFunction = undefined;
-        specialFunctions.forEach(function(elem) {
-            if (objectToWrap == elem) {
-              specialFunction = objectToWrap;
-            }
-        });
-          if (specialFunction != undefined) {
-            if (membrane.debug) console.log("[DEBUG] getOwnPropertyDescriptor trap returning unwrapped special function: " + specialFunction);
-            return specialFunction;
-          }
-        var result = Reflect.getOwnPropertyDescriptor(target, prop);
+        // var specialFunction = undefined;
+        // specialFunctions.forEach(function(elem) {
+        //     if (objectToWrap == elem) {
+        //       specialFunction = objectToWrap;
+        //     }
+        // });
+        // if (specialFunction != undefined) {
+        //   if (membrane.debug) console.log("[DEBUG] getOwnPropertyDescriptor trap returning unwrapped special function: " + specialFunction);
+        //   return specialFunction;
+        // }
 
-        return Reflect.getOwnPropertyDescriptor(target, prop);;
+        var result = Reflect.getOwnPropertyDescriptor(target, prop);
+        return result;
       },
       defineProperty: function(target, property, descriptor) {
         if (membrane.debug) console.log(">>> trap: defineProperty");
@@ -270,6 +258,11 @@ membrane.create = function(initTarget, moduleName) {
       },
       construct: function(target, argumentsList, newTarget) {
         if (membrane.debug) console.log(">>> trap: construct");
+
+        console.log(target);
+        console.log(argumentsList);
+        console.log(newTarget);
+
         return Reflect.construct(target, argumentsList, newTarget); 
       },
       // get trap (used to intercept properties access)
@@ -303,10 +296,10 @@ membrane.create = function(initTarget, moduleName) {
       },
       // apply trap (used to intercept function calls)
       apply : function (target, thisArg, argumentsList) {
+
         // getting current context from the stack
         var currentMembraneContext = membrane.context[membrane.context.length-1];
         var currentContext = currentMembraneContext ? currentMembraneContext : "<mainContext>";
-
         //if (membrane.debug) { console.log("[APPLY TRAP] calling function: " + objectName + " from context " + currentContext); }
 
         // pushing new function context to stack
@@ -344,6 +337,8 @@ membrane.create = function(initTarget, moduleName) {
 
   return wrap(initTarget, moduleName);
 }
+
+
 
 module.exports = membrane;
 
