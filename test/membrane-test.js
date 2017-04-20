@@ -297,6 +297,7 @@ describe('Membrane tests', function() {
 			const dateMembrane = membrane.create(date, "dateModule");
 			assert.ok(dateMembrane.getDate());
 
+			assert.equal(membrane.functionCalls.get("dateModule.getDate@<mainContext>"), 1);	
 	 	});
 	}); 
 
@@ -409,6 +410,14 @@ describe('Membrane tests', function() {
 
 	describe('when accessing non-configurable objects', function() {
 		it('should return them unwrapped ', function() {
+			var obj = {};
+			var constants = ['a', 'b', 'c'];
+			Object.defineProperty(obj, 'constants', {configurable:false, writable:false, value: constants, enumerable:true});
+
+			var membraneObj = membrane.create(obj, "obj");
+			var objDesc = membrane.getOwnPropertyDescriptor(membraneObj, 'constants');
+			assert.ok(membraneObj.constants);
+
 			var membraneFs = membrane.create(require('fs'), 'fs');
 			assert.ok(membraneFs.constants);
 	 	});
@@ -493,13 +502,31 @@ describe('Membrane tests', function() {
 			var Foo = function(){};
 			Foo.prototype.foo = function(){ return "foo"; };
 
-			var FooMembrane = membrane.create(Foo, "fooConstructorModule");
+			var FooMembrane = membrane.create(Foo, "fooModule");
 			
 			var fooObj = new FooMembrane();
 			fooObj.foo();
 
-			assert.equal(membrane.functionCalls.get("fooConstructorModule@<mainContext>"), 1); // new (constructor)
-			assert.equal(membrane.functionCalls.get("fooConstructorModule.foo@<mainContext>"), 1); // function call
+			console.log(membrane.functionCalls);
+			assert.equal(membrane.functionCalls.get("fooModule@<mainContext>"), 1); // new (constructor)
+			assert.equal(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 1); // function call
+
+	 	});
+	});
+
+	describe('when wrapping an object constructor and executing a function that exists in the object', function() {
+		it('should account for the function call', function() {
+			var Foo = function(){};
+			Foo.prototype.foo = function(){ return "foo"; };
+
+			var FooMembrane = membrane.create(Foo, "fooModule");
+			
+			var fooObj = new FooMembrane();
+			fooObj.foo();
+
+			console.log(membrane.functionCalls);
+			assert.equal(membrane.functionCalls.get("fooModule@<mainContext>"), 1); // new (constructor)
+			assert.equal(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 1); // function call
 
 	 	});
 	});
