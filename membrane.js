@@ -19,7 +19,7 @@ DoubleWeakMap.prototype = {
     try {
       return this.map.set(obj, val);
     } catch(e) {
-      console.log("catch: " + e);
+      console.log("DoubleWeakMap set catch: " + e);
       for (var i = 0; i < this.a.length; i++) {
         if (obj === this.a[i]) {
           this.b[i] = val;
@@ -44,9 +44,206 @@ DoubleWeakMap.prototype = {
   }
 };
 
-var mapUnwrapped2Wrapped = new DoubleWeakMap(); // store map from original objects to wrapped ones
-var mapWrapped2Unwrapped = new DoubleWeakMap(); // store map from wrapped objects to original ones
+// used to handle special cases of get trap
+var whitelist =  {
+    // WeakMap: { // ES-Harmony proposal as currently implemented by FF6.0a1
+    //   prototype: {              
+    //     //'delete': t
+    //   }
+    // },      
+    Object: {           
+      prototype: {              
+        __defineGetter__: false,
+        __defineSetter__: false,
+        __lookupGetter__: false,
+        __lookupSetter__: false,
 
+        toString: true, 
+        valueOf: false,
+        hasOwnProperty: true,
+        isPrototypeOf: true,
+        propertyIsEnumerable: true
+      },            
+      getPrototypeOf: true,
+      getOwnPropertyDescriptor: true,
+      getOwnPropertyNames: true,
+      create: true,
+      defineProperty: true,
+      defineProperties: true,
+      seal: true,
+      freeze: false,
+      preventExtensions: false,
+      isSealed: true,
+      isFrozen: false,
+      isExtensible: false,
+      keys: true
+    },
+
+    Array: {
+      prototype: {
+        concat: true,
+        join: true,
+        pop: true,
+        push: true,
+        reverse: true,
+        shift: true,
+        slice: true,
+        sort: true,
+        splice: true,
+        unshift: true,
+        indexOf: true,
+        lastIndexOf: true,
+        every: true,
+        some: true,
+        forEach: true,
+        map: true,
+        filter: true,
+        reduce: true,
+        reduceRight: true,
+      },
+      isArray:true
+    },
+    String: {
+      prototype: { // these String prototype functions when called on dry objectrue, toString() is implicitly called on the dry objectrue, which is already handled.
+        substr: true, // ES5 Appendix B
+        anchor: true, // Harmless whatwg
+        big: true, // Harmless whatwg
+        blink: true, // Harmless whatwg
+        bold: true, // Harmless whatwg
+        fixed: true, // Harmless whatwg
+        fontcolor: true, // Harmless whatwg
+        fontsize: true, // Harmless whatwg
+        italics: true, // Harmless whatwg
+        link: true, // Harmless whatwg
+        small: true, // Harmless whatwg
+        strike: true, // Harmless whatwg
+        sub: true, // Harmless whatwg
+        sup: true, // Harmless whatwg
+        trimLeft: true, // non-standard
+        trimRight: true, // non-standard
+        valueOf: true,
+        charAt: true,
+        charCodeAt: true,
+        concat: true,
+        indexOf: true,
+        lastIndexOf: true,
+        localeCompare: true,
+        match: true,
+        replace: true,
+        search: true,
+        slice: true,
+        split: true,
+        substring: true,
+        startsWith: true,
+        endsWith: true,
+        toLowerCase: true,
+        toLocaleLowerCase: true,
+        toUpperCase: true,
+        toLocaleUpperCase: true,
+        trim: true,
+      },
+      fromCharCode: true
+    },
+    Boolean: {
+      prototype: { // these function prototype when called on dry object does not automatically call valueOf or toString of dry object
+        valueOf: false
+      }
+    },
+    Number: {
+      prototype: {
+        valueOf: false,
+        toFixed: false,
+        toExponential: false,
+        toPrecision: false
+      },
+    },
+    Math: {
+      abs: true,
+      acos: true,
+      asin: true,
+      atan: true,
+      atan2: true,
+      ceil: true,
+      cos: true,
+      exp: true,
+      floor: true,
+      log: true,
+      max: true,
+      min: true,
+      pow: true,
+      random: true, // questionable
+      round: true,
+      sin: true,
+      sqrt: true,
+      tan: true
+    },
+    Date: { // no-arg Date constructor is questionable
+      prototype: {
+        // Note: coordinate this list with maintanence of repairES5.js
+        getYear: true, // ES5 Appendix B
+        setYear: true, // ES5 Appendix B
+        toGMTString: true, // ES5 Appendix B2dsd
+        toDateString: true,
+        toTimeString: true,
+        toLocaleString: true,
+        toLocaleDateString: true,
+        toLocaleTimeString: true,
+        valueOf: true,
+        getTime: true,
+        getFullYear: true,
+        getUTCFullYear: true,
+        getMonth: true,
+        getUTCMonth: true,
+        getDate: true,
+        getUTCDate: true,
+        getDay: true,
+        getUTCDay: true,
+        getHours: true,
+        getUTCHours: true,
+        getMinutes: true,
+        getUTCMinutes: true,
+        getSeconds: true,
+        getUTCSeconds: true,
+        getMilliseconds: true,
+        getUTCMilliseconds: true,
+        getTimezoneOffset: true,
+        setTime: true,
+        setFullYear: true,
+        setUTCFullYear: true,
+        setMonth: true,
+        setUTCMonth: true,
+        setDate: true,
+        setUTCDate: true,
+        setHours: true,
+        setUTCHours: true,
+        setMinutes: true,
+        setUTCMinutes: true,
+        setSeconds: true,
+        setUTCSeconds: true,
+        setMilliseconds: true,
+        setUTCMilliseconds: true,
+        toUTCString: true,
+        toISOString: true,
+        toJSON: true
+      },
+      parse: true,
+      UTC: true,
+    },
+    JSON: {
+      parse: true,
+      stringify: true
+    },        
+    Function:{
+      prototype:{
+        // toString:true,
+        call:true,
+        apply:true,
+        bind:true
+      }
+    }         
+};
+
+// used to handle special cases of apply trap
 var specialFunctions = [  
     clearInterval,  
     clearTimeout,
@@ -69,55 +266,149 @@ var specialFunctions = [
     Function.prototype.toString,        
 ];
 
+var mapUnwrapped2Wrapped = new DoubleWeakMap(); // store map from original objects to wrapped ones
+var mapWrapped2Unwrapped = new DoubleWeakMap(); // store map from wrapped objects to original ones
+
 var membrane = {};
+membrane.create = function(){};
 membrane.debug = true;
 membrane.context = [];
-
+membrane.whiteList = new WeakMap();
+membrane.nativePrototypes = new WeakMap();
 membrane.functionCalls = new Map(); 
 
+membrane.setupWhiteList = function() {
+  //We whitelist only built-in prototype functions and some built-in functions from 'window'
+  var whiteListedObject; 
+  Object.keys(whitelist).forEach(function(e1) {       
+    whiteListedObject = eval(e1);     
+    if (typeof whitelist[e1] === "object") {
+      Object.keys(whitelist[e1]).forEach(function(e2) {
+        try {
+          whiteListedObject = eval(e1 + "." + e2);
+        }
+        catch(ex) { console.log("setupWhiteList catch(ex): " + e1 + " " + e2); }
+        if (e2 !== "prototype") {
+          if (whitelist[e1][e2]) {               
+            try {
+              membrane.whiteList.set(whiteListedObject, {});
+            } catch(ee) { console.log("setupWhiteList catch(ee1): " + e1 + " " + e2); }
+          }             
+        }           
+        if (typeof whitelist[e1][e2] === "object") {
+          Object.keys(whitelist[e1][e2]).forEach(function(e3) {               
+            whiteListedObject = eval(e1 + "." + e2 + "." + e3);
+            if (whitelist[e1][e2][e3]) {                 
+              try {
+                membrane.whiteList.set(whiteListedObject, {});
+              } catch(ee) { console.log("setupWhiteList catch(ee2): " + e1 + " " + e2 + " " + e3); }
+            }
+          });
+        }
+      });
+    }     
+  }); 
+}
+membrane.setupWhiteList();
+
+membrane.setupNativePrototypes = function() {
+  ["Function", "Object", "Array", "String", "Number", "Boolean", "RegExp", "Error"].forEach(function(elem) {        
+    var wrappedElem = membrane.create(elem);
+
+    if (elem.prototype != undefined) {
+      if (!membrane.isWrapped(elem.prototype.constructor)) {        
+        elem.prototype.constructor = wrappedElem;
+      }      
+      membrane.nativePrototypes.set(elem.prototype, {});
+    }
+  });
+}
+membrane.setupNativePrototypes();
+ 
+// checks if an object is a primitive or not
 // should be private (public now for testing purposes)
 membrane.isPrimitive = function(obj) {
   return Object(obj) !== obj;
 }
 
+// checks if an object is wrapped with a proxy or not
 // should be private (public now for testing purposes)
 membrane.isWrapped = function(obj) {
   return mapWrapped2Unwrapped.has(obj);
 }
 
-// // used when getOwnPropertyDescriptor trap is triggered
-// membrane.sync = function(obj, objCopy, property) {
-// try {
-//     var objDesc = Object.getOwnPropertyDescriptor(obj, property);
-//     var objCopyDesc = Object.getOwnPropertyDescriptor(objCopy, property);
-//     if (!objCopyDesc || objCopyDesc.configurable) {           
-//       if (objDesc.get || objDesc.set) {
-//         Object.defineProperty(objCopy, property, {configurable:true, get:(objDesc.get ? Function.prototype.bind.call(objDesc.get,obj) : undefined), set:(objDesc.set ? Function.prototype.bind.call(objDesc.set,obj) : undefined), enumerable:objDesc.enumerable});
-//       } else {
-//         Object.defineProperty(objCopy, property, {configurable:true, writable:true, value:objDesc.value, enumerable:objDesc.enumerable});
-//       }
-//     } else {
-//       objCopy[n] = obj[n]; // TODO: check this, it was obj[e]
-//     }
-//   }
-//   catch(e) { // if there is a typeError here, it is possible that we are dealing with some built-in object, try to sync all properties
-//     var objProps = Object.getOwnPropertyNames(obj);
-//     objProps.forEach(function(e) {
-//       var objDesc = Object.getOwnPropertyDescriptor(obj,e);
-//       var objCopyDesc = Object.getOwnPropertyDescriptor(objCopy, e);
-//       if (!objCopyDesc || objCopyDesc.configurable) {           
-//         if (objDesc.get || objDesc.set) {
-//           Object.defineProperty(objCopy, e, {configurable:true, get:(objDesc.get ? Function.prototype.bind.call(objDesc.get,obj) : undefined), set:(objDesc.set ? Function.prototype.bind.call(objDesc.set,obj) : undefined), enumerable:objDesc.enumerable});
-//         } else {
-//           Object.defineProperty(objCopy, e, {configurable:true, writable:true, value:objDesc.value, enumerable:objDesc.enumerable});
-//         }
-//       }
-//       else {
-//         objCopy[e] = obj[e];
-//       }
-//     });
-//   }
-// }
+// process object values: use native function references and unwraps objects when necessary
+membrane.processObjectValue = function(obj) {
+
+  if (membrane.isPrimitive(obj)) return obj; 
+
+  if (membrane.whiteList.has(obj)){
+    if (membrane.debug) { console.log("[DEBUG] Returning object from whitelist"); }            
+    return obj;
+  }
+
+  // special functions should not be wrapped (get trap will throw TypeError in these cases)
+  var specialFunction = undefined;
+  specialFunctions.forEach(function(elem) {
+    if (elem == obj) {
+      specialFunction = obj;
+    }
+  });
+  if (specialFunction) {
+    if (membrane.debug) console.log("[DEBUG] Returning unwrapped special function: " + specialFunction);
+    return specialFunction;
+  }
+
+  var unwrappedObj = mapWrapped2Unwrapped.get(obj);
+  if (unwrappedObj){ // original object is wrapped            
+    if (!membrane.nativePrototypes.has(unwrappedObj)) { // prototypes should always be wrapped
+      return unwrappedObj;
+    }
+  }
+  return obj;
+}
+
+// used when getOwnPropertyDescriptor trap is triggered
+membrane.sync = function(obj, objCopy, property) {
+try {
+    var objDesc = Object.getOwnPropertyDescriptor(obj, property);
+    var objCopyDesc = Object.getOwnPropertyDescriptor(objCopy, property);
+    if (!objCopyDesc && objCopyDesc.configurable) {           
+      if (objDesc.get || objDesc.set) {
+        Object.defineProperty(objCopy, property, {configurable:true, get:(objDesc.get ? Function.prototype.bind.call(objDesc.get,obj) : undefined), set:(objDesc.set ? Function.prototype.bind.call(objDesc.set,obj) : undefined), enumerable:objDesc.enumerable});
+      } else {
+        Object.defineProperty(objCopy, property, {configurable:true, writable:true, value:objDesc.value, enumerable:objDesc.enumerable});
+      }
+    } else {
+      objCopy[n] = obj[n]; // TODO: check this, it was obj[e]
+    }
+  }
+  catch(e) { // if there is a typeError here, it is possible that we are dealing with some built-in object, try to sync all properties
+    var objProps = Object.getOwnPropertyNames(obj);
+    objProps.forEach(function(e) {
+      var objDesc = Object.getOwnPropertyDescriptor(obj,e);
+      var objCopyDesc = Object.getOwnPropertyDescriptor(objCopy, e);
+      if (!objCopyDesc && objCopyDesc.configurable) {           
+        if (objDesc.get || objDesc.set) {
+          Object.defineProperty(objCopy, e, {configurable:true, get:(objDesc.get ? Function.prototype.bind.call(objDesc.get,obj) : undefined), set:(objDesc.set ? Function.prototype.bind.call(objDesc.set,obj) : undefined), enumerable:objDesc.enumerable});
+        } else {
+          Object.defineProperty(objCopy, e, {configurable:true, writable:true, value:objDesc.value, enumerable:objDesc.enumerable});
+        }
+      }
+      else {
+        objCopy[e] = obj[e];
+      }
+    });
+  }
+}
+
+
+membrane.getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
+membrane.defineProperty = Object.defineProperty;
+
+membrane.isEmptyObject = function(obj){
+    return typeof obj === "Object" && Object.keys(obj).length === 0;
+};
 
 membrane.create = function(initTarget, moduleName) {
 
@@ -140,21 +431,12 @@ membrane.create = function(initTarget, moduleName) {
     var objectToWrap = obj; //shadow object used as the target object for an object
     // var objProto = obj.__proto__;
 
-    // if (typeof obj === "object") {           
+    // if (typeof obj === "object") {
+    //   console.log(">>> setting prototype: object is an object");           
     //   objectToWrap.__proto__ = objProto ? mapWrapped2Unwrapped.get(objProto) : objProto;          
     // }
     // else if (typeof obj === "function") {
-    //     var args = "";
-    //     for (var i=0; i < obj.length; i++) 
-    //       args = "a" + i + ",";
-
-    //     if (i>0) args = args.slice(0,-1);
-    //     try {
-    //       eval("objectToWrap = function " + obj.name + "("+ args +"){};");
-    //     }
-    //     catch(e) {
-    //       objectToWrap = function(){};
-    //     }       
+    //     console.log(">>> setting prototype: object is a function");
     //     objectToWrap.prototype = obj.prototype;
     //     if (objectToWrap.prototype) {
     //       objectToWrap.prototype = mapWrapped2Unwrapped.get(objectToWrap.prototype);            
@@ -199,96 +481,71 @@ membrane.create = function(initTarget, moduleName) {
     // });      
 
     var wrappedTarget = new Proxy(objectToWrap, {
-
       // list of traps
       // extracted from: http://www.ecma-international.org/ecma-262/6.0/#sec-proxy-object-internal-methods-and-internal-slots
       getPrototypeOf: function(target) {
-        if (membrane.debug) console.log(">>> trap: getPrototypeOf");
+        if (membrane.debug) console.log("[DEBUG] trap: getPrototypeOf");
         return Reflect.getPrototypeOf(target);
       },
       setPrototypeOf: function(target, prototype) {
-        if (membrane.debug) console.log(">>> trap: setPrototypeOf");
+        if (membrane.debug) console.log("[DEBUG] trap: setPrototypeOf");
         return Reflect.setPrototypeOf(target, prototype);
       },
       isExtensible: function(target) {
-        if (membrane.debug) console.log(">>> trap: isExtensible");
+        if (membrane.debug) console.log("[DEBUG] trap: isExtensible");
         return Reflect.isExtensible(target);
       },
       preventExtensions: function(target) {
-        if (membrane.debug) console.log(">>> trap: preventExtensions");
+        if (membrane.debug) console.log("[DEBUG] trap: preventExtensions");
         return Reflect.preventExtensions(target);
       },
       getOwnPropertyDescriptor: function(target, prop) {
-        //if (membrane.debug) console.log(">>> trap: getOwnPropertyDescriptor");
-        // membrane.sync(obj, objectToWrap, prop);
-
-        // var specialFunction = undefined;
-        // specialFunctions.forEach(function(elem) {
-        //     if (objectToWrap == elem) {
-        //       specialFunction = objectToWrap;
-        //     }
-        // });
-        // if (specialFunction != undefined) {
-        //   if (membrane.debug) console.log("[DEBUG] getOwnPropertyDescriptor trap returning unwrapped special function: " + specialFunction);
-        //   return specialFunction;
-        // }
-
+        if (membrane.debug) console.log("[DEBUG] trap: getOwnPropertyDescriptor");
+        //membrane.sync(obj, objectToWrap, prop);
         var result = Reflect.getOwnPropertyDescriptor(target, prop);
         return result;
       },
       defineProperty: function(target, property, descriptor) {
-        if (membrane.debug) console.log(">>> trap: defineProperty");
-        return Reflect.defineProperty(target, property, descriptor);
+        if (membrane.debug) console.log("[DEBUG] trap: defineProperty");
+        return membrane.defineProperty(target, property, descriptor);
       },
       has: function(target, prop) {
-        if (membrane.debug) console.log(">>> trap: has");
+        if (membrane.debug) console.log("[DEBUG] trap: has");
         return Reflect.has(target, prop);
       },
       set: function(target, property, value, receiver) {
-        if (membrane.debug) console.log(">>> trap: set");
+        if (membrane.debug) console.log("[DEBUG] trap: set");
         return Reflect.set(target, property, value, receiver);
       },
       deleteProperty: function(target, property) {
-        if (membrane.debug) console.log(">>> trap: deleteProperty");
+        if (membrane.debug) console.log("[DEBUG] trap: deleteProperty");
         return Reflect.deleteProperty(target, property);  
       },
       ownKeys: function(target) {
-        if (membrane.debug) console.log(">>> trap: ownKeys");
+        if (membrane.debug) console.log("[DEBUG] trap: ownKeys");
         return Reflect.ownKeys(target);  
       },
       construct: function(target, argumentsList, newTarget) {
-        if (membrane.debug) console.log(">>> trap: construct");
+        if (membrane.debug) console.log("[DEBUG] trap: construct");
 
-        console.log(target);
-        console.log(argumentsList);
-        console.log(newTarget);
-
-        return Reflect.construct(target, argumentsList, newTarget); 
+        var constructedTarget = Reflect.construct(target, argumentsList, newTarget);
+        return constructedTarget;
       },
       // get trap (used to intercept properties access)
       get: function(target, propertyName, receiver) {
 
-          var specialFunction = undefined;
-          specialFunctions.forEach(function(elem) {
-            if (elem == objectToWrap) {
-              specialFunction = objectToWrap;
-            }
-          });
-          if (specialFunction) {
-            if (membrane.debug) console.log("[DEBUG] get trap returning unwrapped special function: " + specialFunction);
-            return specialFunction[propertyName];
-          }
-          var result = objectToWrap[propertyName];
+          var result = obj[propertyName];
+          result = membrane.processObjectValue(result);
 
-          if (membrane.isPrimitive(result)) { // primitives are passed through (do we really need two checks?)
-            return result;
-          }
+          if (membrane.isEmptyObject(result)) return result;
 
-          // non-configurable objects cannot be wrapped
-          var objDesc = Object.getOwnPropertyDescriptor(objectToWrap, propertyName);
-          if (objDesc && objDesc.configurable != undefined) {
-            if (objDesc.configurable == false) {
-              return result;
+          // read-only/non-configurable obj ects cannot be wrapped (get trap will throw TypeError in these cases)
+          if (!membrane.isPrimitive(obj)) {
+            var objDesc = membrane.getOwnPropertyDescriptor(obj, propertyName);
+            if (objDesc && objDesc.configurable != undefined) {
+              if (objDesc.configurable == false) {
+                return result;
+              }
             }
           }
 
@@ -296,11 +553,11 @@ membrane.create = function(initTarget, moduleName) {
       },
       // apply trap (used to intercept function calls)
       apply : function (target, thisArg, argumentsList) {
-
         // getting current context from the stack
         var currentMembraneContext = membrane.context[membrane.context.length-1];
         var currentContext = currentMembraneContext ? currentMembraneContext : "<mainContext>";
-        //if (membrane.debug) { console.log("[APPLY TRAP] calling function: " + objectName + " from context " + currentContext); }
+
+        if (membrane.debug) console.log("[DEBUG] Calling function (apply trap): " + objectName + " from context " + currentContext);
 
         // pushing new function context to stack
         membrane.context.push(objectName);
@@ -311,15 +568,17 @@ membrane.create = function(initTarget, moduleName) {
         membrane.functionCalls.set(contextifyFunctioncall(objectName, currentContext), counter);
 
         // proceeding with function call
-        var fCall;
+        var fCall, originalThisArg, originalTarget;
+
+        var processedTarget = membrane.processObjectValue(target);
+        var processedThisArg = membrane.processObjectValue(thisArg);
+
         // TODO: move this to handleSpecialCases function
         // special cases: Function.prototype.toString cannot be called with Reflect.apply API 
-        if (target == Function.prototype.toString) {
-          fCall = Function.prototype.toString.call(target);
-        }  else if (mapWrapped2Unwrapped.has(thisArg)) {
-          fCall = target.apply(mapWrapped2Unwrapped.get(thisArg), argumentsList);
+        if (processedTarget == Function.prototype.toString) {
+          fCall = Function.prototype.toString.apply(obj);
         } else {
-          fCall = target.apply(thisArg, argumentsList);
+          fCall = processedTarget.apply(processedThisArg, argumentsList);
         }
         // pop function context from stack
         membrane.context.pop();
@@ -329,16 +588,14 @@ membrane.create = function(initTarget, moduleName) {
       }
     });
 
-    mapWrapped2Unwrapped.set(wrappedTarget, objectToWrap);
-    mapUnwrapped2Wrapped.set(objectToWrap, wrappedTarget);
+    mapWrapped2Unwrapped.set(wrappedTarget, obj);
+    mapUnwrapped2Wrapped.set(obj, wrappedTarget);
 
     return wrappedTarget;
   }
 
   return wrap(initTarget, moduleName);
 }
-
-
 
 module.exports = membrane;
 

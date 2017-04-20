@@ -12,7 +12,10 @@ describe('Membrane tests', function() {
 
 	describe('when creating a membrane around a function', function() {
 		it('should transparently return a wrapped function', function() { 
-				var wrappedFunc = membrane.create(foo, "foo");
+				var wrappedFunc = membrane.create(foo, "foo");//
+
+				console.log(wrappedFunc());
+
 				assert.equal(typeof wrappedFunc, 'function'); // types are kept the same
 				assert.notEqual(foo, wrappedFunc); // original instance and proxy are different objects
 				assert.equal(foo(), wrappedFunc()); // equal results
@@ -23,11 +26,12 @@ describe('Membrane tests', function() {
 	describe('when creating a membrane around an object that contains a function', function() {
 			it('should transparently return a membrane wrapping the object and the internal function', function() {
 				var obj = { 'foo' : foo };
-
 				var wrappedObj = membrane.create(obj, "foo");
+
 				assert.equal(typeof wrappedObj, 'object'); // types are kept the same
 				assert.notEqual(obj, wrappedObj); // original instance and proxy are different objects
 				assert.notEqual(obj.foo, wrappedObj.foo); // original instance and proxy are different objects
+
 				assert.equal(obj.foo(), wrappedObj.foo()); // equal results
 		});
 	});
@@ -61,6 +65,9 @@ describe('Membrane tests', function() {
 		});
 	});
 
+	// ------------ IMPORTANT ----------------
+	// write test for recursive wrapped functions
+
 	describe('when wrapping an module that call functions using thisArg argument', function() {
 				it('should not throw TypeError', function() {
 
@@ -86,14 +93,14 @@ describe('Membrane tests', function() {
 		});
 	});
 
-	// describe('when wrapping a module that has properties binded to C code', function() {
-	// 	it('should not ', function() {
-	// 		var membraneOS = membrane.create(require('os'), "osModule");
-	// 		console.log(membraneOS.type());
+	describe('when wrapping a module that has properties binded to C code', function() {
+		it('should not ', function() {
+			var membraneOS = membrane.create(require('os'), "osModule");
+			console.log(membraneOS.type());
 
-	// 		assert.equal(membrane.functionCalls.get("osModule.type@<mainContext>"), 1);	
-	// 	});
-	// });
+			assert.equal(membrane.functionCalls.get("osModule.type@<mainContext>"), 1);	
+		});
+	});
 
 	describe('when executing a function in a wrapped module', function() {
 		it('should account for the function call', function() {
@@ -175,7 +182,9 @@ describe('Membrane tests', function() {
 				fooModule.foo = function(x) {
 						console.log("foo");
 						x();
+						var y = x;
 						console.log("foo-end");
+						return y;
 				}
 
 				var barModule = {};
@@ -186,12 +195,12 @@ describe('Membrane tests', function() {
 				var fooMembrane = membrane.create(fooModule, "fooModule");
 				var barMembrane = membrane.create(barModule, "barModule");
 
-
-				fooMembrane.foo(barMembrane.bar);
+				var z = fooMembrane.foo(barMembrane.bar); // barMembrane.bar returned and assigned to z
+				z(); // // implicit call to barModule.bar
 				barMembrane.bar();
 
 			 assert.equal(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 1);	
-			 assert.equal(membrane.functionCalls.get("barModule.bar@<mainContext>"), 1);	
+			 assert.equal(membrane.functionCalls.get("barModule.bar@<mainContext>"), 2);	
 			 assert.equal(membrane.functionCalls.get("barModule.bar@fooModule.foo"), 1);	
 		});
 	});
@@ -282,9 +291,98 @@ describe('Membrane tests', function() {
 		});
 	});
 
-	describe('when..', function() {
-		it('should ..', function() {
-			var membraneFs = membrane.create(require('fs'));
+	describe('when executing function from the whitelist', function() {
+		it('should return no error', function() {
+			const date = new Date();
+			const dateMembrane = membrane.create(date, "dateModule");
+			assert.ok(dateMembrane.getDate());
+
+	 	});
+	}); 
+
+	describe('when executing functions defined in the prototype of an object', function() {
+		it('should track the function call', function() {
+			var Glob = function(){};
+
+			Glob.prototype._processReaddir = function (input) {
+			  var self = this;
+			  self._readdir(self, input);
+			}
+
+			Glob.prototype._readdir = function(self, input) {
+			  self._processReaddir2(input);
+			}
+
+			Glob.prototype._processReaddir2 = function(input) {
+			  console.log(input);
+			}
+
+			// creating object of type Glob
+			var glob = new Glob();
+			glob._processReaddir("test");
+
+			// creating membrane around object of type Glob
+			var membraneGlob = membrane.create(glob, "globModule");
+			membraneGlob._processReaddir("test");
+
+			assert.equal(membrane.functionCalls.get("globModule._processReaddir@<mainContext>"), 1);	
+			assert.equal(membrane.functionCalls.get("globModule._readdir@globModule._processReaddir"), undefined);	// public functions should not be tracked if only used internally
+			assert.equal(membrane.functionCalls.get("globModule._processReaddir2@globModule._readdir"), undefined);	// public functions should not be tracked if only used internally
+
+	 	});
+	}); 
+
+	describe('when creating a membrane around a module that accepts wrapped callback functions defined as prototype functions in other objects', function() {
+		it('should account for the function calls', function() {
+				var fooModule = {};
+				fooModule.foo = function(x) {
+						console.log("foo");
+						x();
+						console.log("foo-end");
+				}
+
+				var barModule = {};
+				barModule.bar = function() {
+					console.log("callback");
+				}
+
+				var Glob = function(){};
+
+				Glob.prototype._processReaddir = function (input) {
+					var self = this;
+				  self._readdir(self, input);
+				}
+
+				Glob.prototype._readdir = function(self, input) {
+				  self._processReaddir2(input);
+				}
+
+				Glob.prototype._processReaddir2 = function(input) {
+				  console.log(input);
+				}
+				// creating object of type Glob
+				var glob = new Glob();
+				glob._processReaddir("test");
+
+				// // creating membrane around object of type Glob
+				var fooMembrane = membrane.create(fooModule, "fooModule");
+				var barMembrane = membrane.create(barModule, "barModule");
+				var globMembrane = membrane.create(glob, "globModule");
+
+				fooMembrane.foo(barMembrane.bar);
+				globMembrane._processReaddir();
+				barMembrane.bar();
+
+			 assert.equal(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 1);	
+			 assert.equal(membrane.functionCalls.get("barModule.bar@<mainContext>"), 1);	
+			 assert.equal(membrane.functionCalls.get("barModule.bar@fooModule.foo"), 1);	
+			 // assert.equal(membrane.functionCalls.get("globModule._processReaddir@<mainContext>"), 1);	
+		});
+	});
+
+	describe('when cloning a wrapped object', function() {
+		it('should not change the behavior of the object', function() {
+			var membraneFs = membrane.create(require('fs'), 'fs');
 			function clone (obj) {
 			  if (obj === null || typeof obj !== 'object')
 			    return obj
@@ -309,12 +407,102 @@ describe('Membrane tests', function() {
 	 	});
 	});  
 
-	describe('when..2', function() {
-		it('should ..2', function() {
-			var membraneFs = membrane.create(require('fs'));
+	describe('when accessing non-configurable objects', function() {
+		it('should return them unwrapped ', function() {
+			var membraneFs = membrane.create(require('fs'), 'fs');
 			assert.ok(membraneFs.constants);
 	 	});
-	}); 	       
+	});
+
+	// extracted from delegate package (_fail.js)
+	describe('when executing a wrapped module that receives a function as call back and executes it inside a try/catch block', function() {
+		it('should..', function() {
+			var membraneFailJS = membrane.create(function(exec) {
+		     try {
+		       return !!exec();
+		     } catch(e){
+		       return true;
+		     }
+  		}, "_fail.js");
+
+			assert.ifError(membraneFailJS(function(){}));
+		  assert.ifError(membraneFailJS(function(){ return false; }));
+		  assert.ifError(membraneFailJS(function(){ return NaN; }));
+		  assert.ifError(membraneFailJS(function(){ return null; }));
+		  assert.ifError(membraneFailJS(function(){
+			  return Object.defineProperty({}, 'a', { get: function(){ return 7; }}).a != 7;
+			}));
+		  assert.ok(membraneFailJS(function(){ return Infinity; }));
+		  assert.ok(membraneFailJS(function(){ throw new Error(); }))
+			assert.ok(membraneFailJS(function(){ return true; }));
+
+			assert.equal(membrane.functionCalls.get("_fail.js@<mainContext>"), 8);	
+
+	 	});
+	});
+
+	// extracted from delegate package (_descriptors.js)
+	describe('when executing a wrapped module that receives a function as call back and executes it inside a try/catch block', function() {
+		it('should..', function() {
+			var membraneFailJS = membrane.create(function(exec) {
+		     try {
+		       return !!exec();
+		     } catch(e){
+		       return true;
+		     }
+  		}, "_fail.js");
+
+			var descriptorMembrane = membrane.create(!membraneFailJS(function(){
+			  return Object.defineProperty({}, 'a', { get: function(){ return 7; }}).a != 7;
+			}), "_descriptor.js");
+
+			assert.ok(descriptorMembrane);
+			assert.equal(membrane.functionCalls.get("_fail.js@<mainContext>"), 1);	
+
+	 	});
+	});
+
+	describe('when setting a new function on a wrapped object and executing it', function() {
+		it('should account for the function call', function() {
+			var foo = function(){ return "foo"; };
+			var bar = function(){ return "bar"; };
+			var objFoo = { 'foo' : foo };
+			var objBar = { 'bar' : bar };
+
+			var fooMembrane = membrane.create(objFoo, "fooModule");
+			fooMembrane.bar = bar;
+
+			fooMembrane.foo();
+			fooMembrane.bar();
+
+			var barMembrane = membrane.create(objBar, 'barModule');
+			barMembrane.foo = fooMembrane.foo;
+
+			barMembrane.foo();
+			barMembrane.bar();
+
+			assert.equal(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 1);
+			assert.equal(membrane.functionCalls.get("fooModule.bar@<mainContext>"), 1);
+			assert.equal(membrane.functionCalls.get("barModule.foo@<mainContext>"), 1);
+			assert.equal(membrane.functionCalls.get("barModule.bar@<mainContext>"), 1);
+	 	});
+	});
+
+	describe('when wrapping an object constructor and executing a function that exists in the object', function() {
+		it('should account for the function call', function() {
+			var Foo = function(){};
+			Foo.prototype.foo = function(){ return "foo"; };
+
+			var FooMembrane = membrane.create(Foo, "fooConstructorModule");
+			
+			var fooObj = new FooMembrane();
+			fooObj.foo();
+
+			assert.equal(membrane.functionCalls.get("fooConstructorModule@<mainContext>"), 1); // new (constructor)
+			assert.equal(membrane.functionCalls.get("fooConstructorModule.foo@<mainContext>"), 1); // function call
+
+	 	});
+	});
 });
 
 describe('Membrane utils tests', function() {
