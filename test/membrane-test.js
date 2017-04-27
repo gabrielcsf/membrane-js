@@ -2,11 +2,10 @@ var assert = require('assert');
 var membrane = require('../membrane');
 
 describe('Membrane tests', function() {
-	var foo;
+	var foo = function(){ return "foo"; };
 
 	beforeEach(function() {
 		// initializers
-		foo = function(){ return "foo"; };
 		membrane.functionCalls = new Map(); 
 	});
 
@@ -29,24 +28,30 @@ describe('Membrane tests', function() {
 				var wrappedObj = membrane.create(obj, "foo");
 
 				assert.equal(typeof wrappedObj, 'object'); // types are kept the same
+				assert.equal(typeof wrappedObj, typeof obj); // types are kept the same
 				assert.notEqual(obj, wrappedObj); // original instance and proxy are different objects
-				assert.notEqual(obj.foo, wrappedObj.foo); // original instance and proxy are different objects
+				assert.notEqual(obj.foo, wrappedObj.foo); // original instance properties and proxy properties are different objects
 
 				assert.equal(obj.foo(), wrappedObj.foo()); // equal results
 		});
 	});
 
-	describe('when creating a membrane around an object and trying to access its prototype', function() {
-			it('should handle', function() {
-				var obj = { 'foo' : foo };
+	/*
+	 * Extracted from minimatch package 
+	 * (wrapping an empty object and comparing it with the '===' operator breaks code semantics) 
+	 */
+	describe('when wrapping an empty object', function() {
+		it('should transparently', function() {
+		  var minimatch = function(){};
+			var Minimatch = new function(){};
 
-				var wrappedObj = membrane.create(obj, "foo");
-				wrappedObj.__proto__.toString();
+			minimatch.Minimatch = Minimatch
+			var GLOBSTAR = minimatch.GLOBSTAR = Minimatch.GLOBSTAR = {}
 
-				// assert.equal(typeof wrappedObj, 'object'); // types are kept the same
-				// assert.notEqual(obj, wrappedObj); // original instance and proxy are different objects
-				// assert.notEqual(obj.foo, wrappedObj.foo); // original instance and proxy are different objects
-				// assert.equal(obj.foo(), wrappedObj.foo()); // equal results
+			var membraneMinimatch = membrane.create(minimatch, 'minimatch');
+			assert.equal(minimatch.GLOBSTAR, minimatch.GLOBSTAR);
+			assert.equal(minimatch.GLOBSTAR, membraneMinimatch.GLOBSTAR);
+			assert.equal(membraneMinimatch.GLOBSTAR, membraneMinimatch.GLOBSTAR);
 		});
 	});
 
@@ -65,8 +70,29 @@ describe('Membrane tests', function() {
 		});
 	});
 
-	// ------------ IMPORTANT ----------------
-	// write test for recursive wrapped functions
+	describe('when wrapping a module that contains a recursive function', function() {
+			it('should account for just one function call', function() {
+				var recursiveFoo = function(list) { 
+          if (list.length == 0) {
+            return;
+          }
+          console.log(list[0]);
+          return recursiveFoo(list.slice(1));
+        }
+        var fruits = ["Banana", "Orange", "Apple", "Mango"];
+
+        var obj = { 'foo' : recursiveFoo };
+        var wrappedObj = membrane.create(obj, "fooModule");
+
+				assert.equal(typeof wrappedObj, 'object'); // types are kept the same
+				assert.notEqual(obj, wrappedObj); // original instance and proxy are different objects
+				assert.notEqual(obj.foo, wrappedObj.foo); // original instance and proxy are different objects
+				assert.equal(obj.foo(fruits), wrappedObj.foo(fruits)); // equal results
+
+				assert.equal(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 1);	
+
+		});
+	});
 
 	describe('when wrapping an module that call functions using thisArg argument', function() {
 				it('should not throw TypeError', function() {
@@ -384,6 +410,12 @@ describe('Membrane tests', function() {
 	describe('when cloning a wrapped object', function() {
 		it('should not change the behavior of the object', function() {
 			var membraneFs = membrane.create(require('fs'), 'fs');
+			membraneFs.readdir("/Users/", function(err, items) {
+			    for (var i=0; i<items.length; i++) {
+			      console.log("file: " + items[i]);
+			    }
+			});
+
 			function clone (obj) {
 			  if (obj === null || typeof obj !== 'object')
 			    return obj
@@ -399,12 +431,15 @@ describe('Membrane tests', function() {
 			  return copy;
 			}
 
+
 			var membraneCopy = clone(membraneFs);
 			membraneCopy.readdir("/Users/", function(err, items) {
 			    for (var i=0; i<items.length; i++) {
 			      console.log("file: " + items[i]);
 			    }
 			});
+			assert.equal(membrane.functionCalls.get("fs.readdir@<mainContext>"), 2);	
+
 	 	});
 	});  
 
@@ -516,23 +551,54 @@ describe('Membrane tests', function() {
 
 	describe('when wrapping an object constructor and executing a function that exists in the object', function() {
 		it('should account for the function call', function() {
-			var Foo = function(){};
-			Foo.prototype.foo = function(){ return "foo"; };
+			var fooModule = {};
+				fooModule.foo = function(x) {
+						console.log("foo");
+						x();
+						var y = x;
+						console.log("foo-end");
+						return y;
+				}
 
-			var FooMembrane = membrane.create(Foo, "fooModule");
-			
-			var fooObj = new FooMembrane();
-			fooObj.foo();
+				var barModule = {};
+				barModule.bar = function() {
+					console.log("callback");
+				}
 
-			console.log(membrane.functionCalls);
-			assert.equal(membrane.functionCalls.get("fooModule@<mainContext>"), 1); // new (constructor)
-			assert.equal(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 1); // function call
+				var fooMembrane = membrane.create(fooModule, "fooModule");
+				var barMembrane = membrane.create(barModule, "barModule");
 
+				var z = fooMembrane.foo(barMembrane.bar); // barMembrane.bar returned and assigned to z
+				z(); // // implicit call to barModule.bar
+				barMembrane.bar();
+
+			 assert.equal(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 1);	
+			 assert.equal(membrane.functionCalls.get("barModule.bar@<mainContext>"), 2);	
+			 assert.equal(membrane.functionCalls.get("barModule.bar@fooModule.foo"), 1);	
 	 	});
 	});
+
 });
 
 describe('Membrane utils tests', function() {
+
+	describe('when checking if object is wrapped', function() {
+		it('should return true if object was found on map', function() {
+
+			var foo = function(){ return "foo"; };
+
+			var bar = function(){ return "bar"; };
+			var objBar = { 'bar' : bar };
+
+			var fooMembrane = membrane.create(foo, "fooModule");
+			var barMembrane = membrane.create(objBar, 'barModule');
+
+			assert.ifError(membrane.isWrapped(foo));
+			assert.ifError(membrane.isWrapped(objBar));
+			assert.ok(membrane.isWrapped(fooMembrane));
+			assert.ok(membrane.isWrapped(barMembrane));
+		});
+	});
 
 	describe('when checking if object is primitive', function() {
 		it('should return true for integers, booleans, strings, NaN, undefined, null, and Infinity and false otherwise', function() {

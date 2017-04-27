@@ -46,11 +46,11 @@ DoubleWeakMap.prototype = {
 
 // used to handle special cases of get trap
 var whitelist =  {
-    // WeakMap: { // ES-Harmony proposal as currently implemented by FF6.0a1
-    //   prototype: {              
-    //     //'delete': t
-    //   }
-    // },      
+    WeakMap: { // ES-Harmony proposal as currently implemented by FF6.0a1
+      prototype: {              
+        'delete': true
+      }
+    },      
     Object: {           
       prototype: {              
         __defineGetter__: false,
@@ -273,9 +273,12 @@ var membrane = {};
 membrane.create = function(){};
 membrane.debug = true;
 membrane.context = [];
+membrane.context.push("<mainContext>");
 membrane.whiteList = new WeakMap();
 membrane.nativePrototypes = new WeakMap();
 membrane.functionCalls = new Map(); 
+membrane.getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
+membrane.defineProperty = Object.defineProperty;
 
 membrane.setupWhiteList = function() {
   //We whitelist only built-in prototype functions and some built-in functions from 'window'
@@ -287,12 +290,12 @@ membrane.setupWhiteList = function() {
         try {
           whiteListedObject = eval(e1 + "." + e2);
         }
-        catch(ex) { console.log("setupWhiteList catch(ex): " + e1 + " " + e2); }
+        catch(ex) { console.log("[ERROR] setupWhiteList catch(ex): " + e1 + " " + e2); }
         if (e2 !== "prototype") {
           if (whitelist[e1][e2]) {               
             try {
               membrane.whiteList.set(whiteListedObject, {});
-            } catch(ee) { console.log("setupWhiteList catch(ee1): " + e1 + " " + e2); }
+            } catch(ee1) { console.log("[ERROR] setupWhiteList catch(ee1): " + ee1 + " " + e2); }
           }             
         }           
         if (typeof whitelist[e1][e2] === "object") {
@@ -301,7 +304,7 @@ membrane.setupWhiteList = function() {
             if (whitelist[e1][e2][e3]) {                 
               try {
                 membrane.whiteList.set(whiteListedObject, {});
-              } catch(ee) { console.log("setupWhiteList catch(ee2): " + e1 + " " + e2 + " " + e3); }
+              } catch(ee2) { console.log("[ERROR] setupWhiteList catch(ee2): " + e1 + " " + e2 + " " + e3); }
             }
           });
         }
@@ -362,7 +365,10 @@ membrane.processObjectValue = function(obj) {
   var unwrappedObj = mapWrapped2Unwrapped.get(obj);
   if (unwrappedObj) { // original object is wrapped            
     if (!membrane.nativePrototypes.has(unwrappedObj)) { // prototypes should always be wrapped
+      if (membrane.debug) { console.log("[DEBUG] Returning unwrapped from whitelist: " + JSON.stringify(unwrappedObj)); }            
       return unwrappedObj;
+    } else {
+      return obj;
     }
   }
   return undefined;
@@ -402,9 +408,6 @@ try {
   }
 }
 
-
-membrane.getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
-membrane.defineProperty = Object.defineProperty;
 
 membrane.isEmptyObject = function(obj){
     return typeof obj === "Object" && Object.keys(obj).length === 0;
@@ -560,6 +563,7 @@ membrane.create = function(initTarget, moduleName) {
             var targetDesc = membrane.getOwnPropertyDescriptor(target, propertyName);
             if (targetDesc && targetDesc.configurable != undefined) {
               if (targetDesc.configurable == false) {
+                if (membrane.debug) console.log("[DEBUG] Returning unwrapped read-only object " + JSON.stringify(result));
                 return result;
               }
             }
@@ -569,8 +573,7 @@ membrane.create = function(initTarget, moduleName) {
       // apply trap (used to intercept function calls)
       apply : function (target, thisArg, argumentsList) {
         // getting current context from the stack
-        var currentMembraneContext = membrane.context[membrane.context.length-1];
-        var currentContext = currentMembraneContext ? currentMembraneContext : "<mainContext>";
+        var currentContext = membrane.context[membrane.context.length-1];
 
         if (membrane.debug) console.log("[DEBUG] Calling function (apply trap): " + objectName + " from context " + currentContext);
 
@@ -583,7 +586,7 @@ membrane.create = function(initTarget, moduleName) {
         membrane.functionCalls.set(contextifyFunctioncall(objectName, currentContext), counter);
 
         // proceeding with function call
-        var fCall, originalThisArg, originalTarget;
+        var fCall, originalThisArg;
 
         // var processedTarget = membrane.processObjectValue(target);
         var processedThisArg = membrane.processObjectValue(thisArg);
@@ -595,12 +598,13 @@ membrane.create = function(initTarget, moduleName) {
         // TODO: move this to handleSpecialCases function
         // special cases: Function.prototype.toString cannot be called with Reflect.apply API 
         if (target == Function.prototype.toString) {
-          fCall = Function.prototype.toString.apply(obj);
+          fCall = Function.prototype.toString.apply(target);
         } else {
           fCall = target.apply(thisArg, argumentsList);
         }
         // pop function context from stack
         membrane.context.pop();
+        console.log("[DEBUG] Call context: " + membrane.context);
 
         // return the function call result
         return fCall;
@@ -615,6 +619,23 @@ membrane.create = function(initTarget, moduleName) {
 
   return wrap(initTarget, moduleName);
 }
+
+// var foo = function(){ return "foo"; };
+// var fooModule = {};
+// fooModule.foo = function(obj) {
+//     console.log("foo");
+//     obj.toString = function() { return "a".toString() };
+//     console.log(obj.toString());    
+//     console.log("foo-end");
+// }
+
+// var barModule = {};
+
+// var fooMembrane = membrane.create(fooModule, "fooModule");
+// var barMembrane = membrane.create(barModule, "barModule");
+
+// fooMembrane.foo(barMembrane); // barMembrane.bar returned and assigned to z
+// console.log(barMembrane.toString());
 
 module.exports = membrane;
 
