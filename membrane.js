@@ -19,7 +19,6 @@ DoubleWeakMap.prototype = {
     try {
       return this.map.set(obj, val);
     } catch(e) {
-      console.log("DoubleWeakMap set catch: " + e);
       for (var i = 0; i < this.a.length; i++) {
         if (obj === this.a[i]) {
           this.b[i] = val;
@@ -235,48 +234,58 @@ var whitelist =  {
     },        
     Function:{
       prototype:{
-        // toString:true,
-        call:true,
-        apply:true,
-        bind:true
+        toString: true,
+        call: true,
+        apply: true,
+        bind: true
       }
-    }         
+    },
+
 };
 
-// used to handle special cases of apply trap
-var specialFunctions = [  
-    clearInterval,  
-    clearTimeout,
-    setTimeout,
-    setInterval,
-    eval,
-    Object,
-    Function,
-    Array,
-    String, 
-    Number,
-    Boolean,
-    RegExp,
-    Date,
-    Error,
-    Uint32Array,
-    Symbol, 
-    Promise,
-    Promise.resolve,
-    Function.prototype.toString,        
-];
+// // used to handle special cases of apply trap
+// var specialFunctions = [  
+//     clearInterval,  
+//     clearTimeout,
+//     setTimeout,
+//     setInterval,
+//     eval,
+//     Object,
+//     Function,
+//     Array,
+//     String, 
+//     Number,
+//     Boolean,
+//     RegExp,
+//     Date,
+//     Error,
+//     Uint32Array,
+//     Symbol, 
+//     Promise,
+//     Promise.resolve,
+//     Function.prototype.toString,        
+// ];
 
 var mapUnwrapped2Wrapped = new DoubleWeakMap(); // store map from original objects to wrapped ones
 var mapWrapped2Unwrapped = new DoubleWeakMap(); // store map from wrapped objects to original ones
 
 var membrane = {};
 membrane.create = function(){};
+membrane.isWrapped = function(){};
+
 membrane.debug = true;
+membrane.trapsDebug = true;
+membrane.contextDebug = true;
+
 membrane.context = [];
 membrane.context.push("<mainContext>");
+membrane.functionCalls = new Map(); 
+
+// functions/objects that need special handling
 membrane.whiteList = new WeakMap();
 membrane.nativePrototypes = new WeakMap();
-membrane.functionCalls = new Map(); 
+
+// reference to Object functions 
 membrane.getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
 membrane.defineProperty = Object.defineProperty;
 
@@ -290,12 +299,12 @@ membrane.setupWhiteList = function() {
         try {
           whiteListedObject = eval(e1 + "." + e2);
         }
-        catch(ex) { console.log("[ERROR] setupWhiteList catch(ex): " + e1 + " " + e2); }
+        catch(ex) { console.log("[DEBUG] setupWhiteList catch(ex): " + e1 + " " + e2); }
         if (e2 !== "prototype") {
           if (whitelist[e1][e2]) {               
             try {
               membrane.whiteList.set(whiteListedObject, {});
-            } catch(ee1) { console.log("[ERROR] setupWhiteList catch(ee1): " + ee1 + " " + e2); }
+            } catch(ee) { console.log("[DEBUG] setupWhiteList catch(ee1): " + e1 + " " + e2); }
           }             
         }           
         if (typeof whitelist[e1][e2] === "object") {
@@ -304,7 +313,7 @@ membrane.setupWhiteList = function() {
             if (whitelist[e1][e2][e3]) {                 
               try {
                 membrane.whiteList.set(whiteListedObject, {});
-              } catch(ee2) { console.log("[ERROR] setupWhiteList catch(ee2): " + e1 + " " + e2 + " " + e3); }
+              } catch(ee) { console.log("[DEBUG] setupWhiteList catch(ee2): " + e1 + " " + e2 + " " + e3); }
             }
           });
         }
@@ -314,318 +323,221 @@ membrane.setupWhiteList = function() {
 }
 membrane.setupWhiteList();
 
-membrane.setupNativePrototypes = function() {
-  ["Function", "Object", "Array", "String", "Number", "Boolean", "RegExp", "Error"].forEach(function(elem) {        
-    var wrappedElem = membrane.create(elem);
-
-    if (elem.prototype != undefined) {
-      if (!membrane.isWrapped(elem.prototype.constructor)) {        
-        elem.prototype.constructor = wrappedElem;
-      }      
-      membrane.nativePrototypes.set(elem.prototype, {});
-    }
-  });
-}
-membrane.setupNativePrototypes();
- 
-// checks if an object is a primitive or not
-// should be private (public now for testing purposes)
+// checks if an object is a primitive (number, string, null, undefined) or not
 membrane.isPrimitive = function(obj) {
   return Object(obj) !== obj;
 }
 
+// checks if an object is empty (TODO: rethink need of this function)
+membrane.isEmptyObject = function(obj) {
+    return typeof obj === "Object" && Object.keys(obj).length === 0;
+};
+
+// handle get operations results (can be used in any trap that behaves like a get operation)
+membrane.processGetValue = function(result, objectName) {
+
+  if (membrane.isPrimitive(result)) {
+    if (membrane.debug) { console.log("[DEBUG-processGetValue] Returning primitive object: " + JSON.stringify(result)); }            
+    return result;
+  }
+
+  if (membrane.whiteList.has(result)){
+    if (membrane.debug) { console.log("[DEBUG-processGetValue] Returning object from whitelist"); }            
+    return result;
+  }
+
+  if (membrane.debug) { console.log("[DEBUG-processGetValue] Returning wrapped object: "); }           
+  return membrane.create(result, objectName);
+}
+
+// handle get operations results (can be used in any trap that behaves like a get operation)
+membrane.processSetValue = function(result) {
+  console.log(">>>>>> [TODO: implement processSetValue]");
+  return result;
+}
+
+membrane.enterContext = function(objectName) {
+  var currentMembraneContext = membrane.context[membrane.context.length-1];
+  var currentContext = currentMembraneContext ? currentMembraneContext : "<mainContext>";
+
+  if (membrane.contextDebug) console.log("[DEBUG] Calling function (apply trap): " + objectName + " from context " + currentContext);
+
+  // pushing new function context to stack
+  membrane.context.push(objectName);
+
+  // account for function call (objectName) in the current context
+  var counter = membrane.functionCalls.get(membrane.contextifyFunctioncall(objectName, currentContext));
+  counter = counter ? counter+ 1 : 1;
+  membrane.functionCalls.set(membrane.contextifyFunctioncall(objectName, currentContext), counter);
+}
+
+membrane.exitContext = function() {
+  membrane.context.pop();
+}
+
+membrane.currentContext = function() { return ""; }
+
 // checks if an object is wrapped with a proxy or not
-// should be private (public now for testing purposes)
 membrane.isWrapped = function(obj) {
   return mapWrapped2Unwrapped.has(obj);
 }
 
-// process object values: return unwrapped primitives, native function references, and unwrapped objects when necessary
-membrane.processObjectValue = function(obj) {
-
-  if (membrane.isPrimitive(obj)) return obj; 
-
-  if (membrane.whiteList.has(obj)){
-    if (membrane.debug) { console.log("[DEBUG] Returning object from whitelist"); }            
-    return obj;
+membrane.getWrapped = function(obj) {
+  if (obj && mapUnwrapped2Wrapped.has(obj)) {
+    return mapUnwrapped2Wrapped.get(obj);
   }
+  return obj;
+}
 
-  // special objects/functions should not be wrapped (get trap will throw TypeError in these cases)
-  var specialFunction = undefined;
-  specialFunctions.forEach(function(elem) {
-    if (elem == obj) {
-      specialFunction = obj;
+// unwraps an object and returns a non-proxied reference of it
+membrane.getUnwrapped = function(obj) {
+  if (obj && mapWrapped2Unwrapped.has(obj)) {
+    return mapWrapped2Unwrapped.get(obj);
+  }
+  return obj;
+}
+
+membrane.getUnwrappedIfNotPrimitive = function(obj) {
+  return membrane.isPrimitive(obj) ? obj : membrane.getUnwrapped(obj);
+}
+
+// wraps an object and returns a proxied reference of it
+membrane.wrap = function(obj, objectName) {
+  var wrappedObj;
+
+  var objectToWrap = obj;   
+
+  wrappedObj = new Proxy(objectToWrap, {
+    // list of traps
+    // extracted from: http://www.ecma-international.org/ecma-262/6.0/#sec-proxy-object-internal-methods-and-internal-slots
+    getPrototypeOf: function(target) {
+      if (membrane.trapsDebug) console.log("[DEBUG-trap] trap: getPrototypeOf");
+      return Reflect.getPrototypeOf(target);
+    },
+    setPrototypeOf: function(target, prototype) {
+      if (membrane.trapsDebug) console.log("[DEBUG-trap]: setPrototypeOf");
+      return Reflect.setPrototypeOf(target, prototype);
+    },
+    isExtensible: function(target) {
+      if (membrane.trapsDebug) console.log("[DEBUG-trap]: isExtensible");
+      return Reflect.isExtensible(target);
+    },
+    preventExtensions: function(target) {
+      if (membrane.trapsDebug) console.log("[DEBUG-trap]: preventExtensions");
+      return Reflect.preventExtensions(target);
+    },
+    getOwnPropertyDescriptor: function(target, prop) {
+      if (membrane.trapsDebug) console.log("[DEBUG-trap]: getOwnPropertyDescriptor");
+      return Reflect.getOwnPropertyDescriptor(target, prop);
+    },
+    defineProperty: function(target, property, descriptor) {
+      if (membrane.trapsDebug) console.log("[DEBUG-trap]: defineProperty");
+      return membrane.defineProperty(target, property, descriptor);
+    },
+    has: function(target, prop) {
+      if (membrane.trapsDebug) console.log("[DEBUG-trap]: has");
+      return Reflect.has(target, prop);
+    },
+    set: function(target, property, value, receiver) {
+      if (membrane.trapsDebug) console.log("[DEBUG-trap]: set");
+      return Reflect.set(target, property, value, receiver);
+    },
+    deleteProperty: function(target, property) {
+      if (membrane.trapsDebug) console.log("[DEBUG-trap]: deleteProperty");
+      return Reflect.deleteProperty(target, property);  
+    },
+    ownKeys: function(target) {
+      if (membrane.trapsDebug) console.log("[DEBUG-trap]: ownKeys");
+      return Reflect.ownKeys(target);  
+    },
+    construct: function(target, argumentsList, newTarget) {
+      if (membrane.trapsDebug) console.log("[DEBUG-trap]: construct");
+      return Reflect.construct(target, argumentsList, newTarget);
+    },
+    // get trap (used to intercept properties access)
+    get: function(target, propertyName, receiver) {
+      if (membrane.trapsDebug) console.log("[DEBUG-trap] get: " + String(propertyName));
+
+      var result = target[propertyName];
+      result = membrane.processGetValue(result, String(objectName) + "." + String(propertyName));     
+
+      // read-only/non-configurable objects cannot be wrapped (get trap will throw TypeError in these cases)
+      if (!membrane.isPrimitive(target)) {
+        var targetDesc = membrane.getOwnPropertyDescriptor(target, propertyName);
+        if (targetDesc && targetDesc.configurable != undefined) {
+          if (targetDesc.configurable == false) {
+            return result;
+          }
+        }
+      }
+
+      return result;
+    },
+    // apply trap (used to intercept function calls)
+    apply : function (target, thisArg, argumentsList) {
+      if (membrane.trapsDebug) console.log("[DEBUG-trap] apply " + String(target));
+      var result, functionCallresult;
+
+      // // handle special functions
+      // // TODO: rethink need
+
+      var isNativeFunction = Function.prototype.toString.call(target).includes("[native code]");
+      
+      // handle argumentsList (wrap or unwrap it before calling function)
+      for (var i = 0; i < argumentsList.length; i++) {
+        if (!isNativeFunction && (typeof argumentsList[i] === "function")) {
+          argumentsList[i] = membrane.processSetValue(argumentsList[i]);
+        } else {
+          argumentsList[i] = membrane.getUnwrappedIfNotPrimitive(argumentsList[i])
+        }
+      }
+
+      // handle argumentsList (wrap or unwrap it before calling function)
+      // native functions are always unwrapped before calling
+      if (!isNativeFunction) {
+        thisArg = membrane.processSetValue(thisArg);
+      } else {
+        thisArg = membrane.getUnwrappedIfNotPrimitive(thisArg)
+      }
+
+      membrane.enterContext(objectName);
+
+      functionCallresult = target.apply(thisArg, argumentsList);
+
+      membrane.exitContext();
+
+      result = membrane.processGetValue(functionCallresult, String(objectName));
+      return result;
     }
   });
-  if (specialFunction) {
-    if (membrane.debug) console.log("[DEBUG] Returning unwrapped special function: " + specialFunction);
-    return specialFunction;
-  }
 
-  var unwrappedObj = mapWrapped2Unwrapped.get(obj);
-  if (unwrappedObj) { // original object is wrapped            
-    if (!membrane.nativePrototypes.has(unwrappedObj)) { // prototypes should always be wrapped
-      if (membrane.debug) { console.log("[DEBUG] Returning unwrapped from whitelist: " + JSON.stringify(unwrappedObj)); }            
-      return unwrappedObj;
-    } else {
-      return obj;
-    }
-  }
-  return undefined;
+  return wrappedObj;
 }
 
-// used when getOwnPropertyDescriptor trap is triggered
-membrane.sync = function(obj, objCopy, property) {
-try {
-    var objDesc = Object.getOwnPropertyDescriptor(obj, property);
-    var objCopyDesc = Object.getOwnPropertyDescriptor(objCopy, property);
-    if (!objCopyDesc && objCopyDesc.configurable) {           
-      if (objDesc.get || objDesc.set) {
-        Object.defineProperty(objCopy, property, {configurable:true, get:(objDesc.get ? Function.prototype.bind.call(objDesc.get,obj) : undefined), set:(objDesc.set ? Function.prototype.bind.call(objDesc.set,obj) : undefined), enumerable:objDesc.enumerable});
-      } else {
-        Object.defineProperty(objCopy, property, {configurable:true, writable:true, value:objDesc.value, enumerable:objDesc.enumerable});
-      }
-    } else {
-      objCopy[n] = obj[n]; // TODO: check this, it was obj[e]
-    }
-  }
-  catch(e) { // if there is a typeError here, it is possible that we are dealing with some built-in object, try to sync all properties
-    var objProps = Object.getOwnPropertyNames(obj);
-    objProps.forEach(function(e) {
-      var objDesc = Object.getOwnPropertyDescriptor(obj,e);
-      var objCopyDesc = Object.getOwnPropertyDescriptor(objCopy, e);
-      if (!objCopyDesc && objCopyDesc.configurable) {           
-        if (objDesc.get || objDesc.set) {
-          Object.defineProperty(objCopy, e, {configurable:true, get:(objDesc.get ? Function.prototype.bind.call(objDesc.get,obj) : undefined), set:(objDesc.set ? Function.prototype.bind.call(objDesc.set,obj) : undefined), enumerable:objDesc.enumerable});
-        } else {
-          Object.defineProperty(objCopy, e, {configurable:true, writable:true, value:objDesc.value, enumerable:objDesc.enumerable});
-        }
-      }
-      else {
-        objCopy[e] = obj[e];
-      }
-    });
-  }
-}
-
-
-membrane.isEmptyObject = function(obj){
-    return typeof obj === "Object" && Object.keys(obj).length === 0;
-};
+membrane.contextifyFunctioncall = function(functionCall, context) {
+  return functionCall + "@" + context;
+} 
 
 membrane.create = function(initTarget, moduleName) {
-
-  function contextifyFunctioncall(functionCall, context) {
-    return functionCall + "@" + context;
-  } 
-
   if (membrane.isWrapped(initTarget)) {
-    return initTarget;
+    return membrane.getWrapped(initTarget);
   }
 
-  var wrap = function(obj, objectName) {
-  
-    if (membrane.isPrimitive(obj)) return obj; // primitives are passed through
+  var wrappedTarget = membrane.wrap(initTarget, moduleName);
 
-    // TODO: handle special functions, native objects
-    // var objectToBeWrapped = obj;
-    // handleSpecialCases(objectToBeWrapped);
+  mapWrapped2Unwrapped.set(wrappedTarget, initTarget);
+  mapUnwrapped2Wrapped.set(initTarget, wrappedTarget);
 
-    var objectToWrap = obj; //shadow object used as the target object for an object
-    // var objProto = obj.__proto__;
-
-    // if (typeof obj === "object") {
-    //   console.log(">>> setting prototype: object is an object");           
-    //   objectToWrap.__proto__ = objProto ? mapWrapped2Unwrapped.get(objProto) : objProto;          
-    // }
-    // else if (typeof obj === "function") {
-    //     console.log(">>> setting prototype: object is a function");
-    //     objectToWrap.prototype = obj.prototype;
-    //     if (objectToWrap.prototype) {
-    //       objectToWrap.prototype = mapWrapped2Unwrapped.get(objectToWrap.prototype);            
-    //     }   
-    //     objectToWrap.__proto__ = objProto ? mapWrapped2Unwrapped.get(objProto) : objProto;        
-    // }
-    // else {
-    //   console.log('[ERROR]!!! object is weird, typeof is weird ' + typeof(obj) + "\n");
-    // }
-
-    // // In fact , Proxy does not automatically forward these operations when used directly
-    // // like 'proxy.valueOf()', but it does automatically forward these operations when used implicitly (coercion)
-    // // like 'proxy == true', so we have to declare those opeations on shadow object
-    // var objDesc = Object.getOwnPropertyDescriptor(obj, "toString");
-    // if (!objDesc) {
-    //   objDesc = { enumerable:false };
-    // }
-
-    // Object.defineProperty(objectToWrap, "toString", {
-    //   enumerable: objDesc.enumerable,
-    //   configurable: true,
-    //   writable: true,
-    //   value: function() {
-    //     return obj.toString();
-    //   }
-    // });
-
-    // // have to define this because firefox Proxy will call valueOf of objectToWrap,
-    // // which trigger a lot of calls through objectToWrap.__proto__ which is a proxy.
-    // objDesc = Object.getOwnPropertyDescriptor(obj, "valueOf");
-    // if (!objDesc) {
-    //   objDesc = { enumerable:false };
-    // }
-
-    // Object.defineProperty(objectToWrap, "valueOf", {
-    //   enumerable: objDesc.enumerable,
-    //   configurable: true,
-    //   writable: true,
-    //   value: function() {    
-    //     return obj.valueOf();
-    //   }
-    // });      
-
-    var wrappedTarget = new Proxy(objectToWrap, {
-      // list of traps
-      // extracted from: http://www.ecma-international.org/ecma-262/6.0/#sec-proxy-object-internal-methods-and-internal-slots
-      getPrototypeOf: function(target) {
-        if (membrane.debug) console.log("[DEBUG] trap: getPrototypeOf");
-        return Reflect.getPrototypeOf(target);
-      },
-      setPrototypeOf: function(target, prototype) {
-        if (membrane.debug) console.log("[DEBUG] trap: setPrototypeOf");
-        return Reflect.setPrototypeOf(target, prototype);
-      },
-      isExtensible: function(target) {
-        if (membrane.debug) console.log("[DEBUG] trap: isExtensible");
-        return Reflect.isExtensible(target);
-      },
-      preventExtensions: function(target) {
-        if (membrane.debug) console.log("[DEBUG] trap: preventExtensions");
-        return Reflect.preventExtensions(target);
-      },
-      getOwnPropertyDescriptor: function(target, prop) {
-        if (membrane.debug) console.log("[DEBUG] trap: getOwnPropertyDescriptor");
-        //membrane.sync(obj, objectToWrap, prop);
-        var result = Reflect.getOwnPropertyDescriptor(target, prop);
-        return result;
-      },
-      defineProperty: function(target, property, descriptor) {
-        if (membrane.debug) console.log("[DEBUG] trap: defineProperty");
-        return membrane.defineProperty(target, property, descriptor);
-      },
-      has: function(target, prop) {
-        if (membrane.debug) console.log("[DEBUG] trap: has");
-        return Reflect.has(target, prop);
-      },
-      set: function(target, property, value, receiver) {
-        if (membrane.debug) console.log("[DEBUG] trap: set");
-        return Reflect.set(target, property, value, receiver);
-      },
-      deleteProperty: function(target, property) {
-        if (membrane.debug) console.log("[DEBUG] trap: deleteProperty");
-        return Reflect.deleteProperty(target, property);  
-      },
-      ownKeys: function(target) {
-        if (membrane.debug) console.log("[DEBUG] trap: ownKeys");
-        return Reflect.ownKeys(target);  
-      },
-      construct: function(target, argumentsList, newTarget) {
-        if (membrane.debug) console.log("[DEBUG] trap: construct");
-
-        // getting current context from the stack
-        var currentMembraneContext = membrane.context[membrane.context.length-1];
-        var currentContext = currentMembraneContext ? currentMembraneContext : "<mainContext>";
-
-        if (membrane.debug) console.log("[DEBUG] Calling function (apply trap): " + objectName + " from context " + currentContext);
-
-        // pushing new function context to stack
-        membrane.context.push(objectName);
-
-        // account for function call (objectName) in the current context
-        var counter = membrane.functionCalls.get(contextifyFunctioncall(objectName, currentContext));
-        counter = counter ? counter+ 1 : 1;
-        membrane.functionCalls.set(contextifyFunctioncall(objectName, currentContext), counter);
-
-        var constructedTarget = Reflect.construct(target, argumentsList, newTarget);
-
-        membrane.context.pop();
-
-        return wrap(constructedTarget, String(objectName));
-      },
-      // get trap (used to intercept properties access)
-      get: function(target, propertyName, receiver) {
-          var result = target[propertyName];
-
-          var processedObj = membrane.processObjectValue(target);
-          if (processedObj != undefined) return processedObj[propertyName];
-
-          // read-only/non-configurable objects cannot be wrapped (get trap will throw TypeError in these cases)
-          if (!membrane.isPrimitive(target)) {
-            var targetDesc = membrane.getOwnPropertyDescriptor(target, propertyName);
-            if (targetDesc && targetDesc.configurable != undefined) {
-              if (targetDesc.configurable == false) {
-                if (membrane.debug) console.log("[DEBUG] Returning unwrapped read-only object " + JSON.stringify(result));
-                return result;
-              }
-            }
-          }
-          return wrap(result, String(objectName) + "." + String(propertyName));
-      },
-      // apply trap (used to intercept function calls)
-      apply : function (target, thisArg, argumentsList) {
-        // getting current context from the stack
-        var currentContext = membrane.context[membrane.context.length-1];
-
-        if (membrane.debug) console.log("[DEBUG] Calling function (apply trap): " + objectName + " from context " + currentContext);
-
-        // pushing new function context to stack
-        membrane.context.push(objectName);
-
-        // account for function call (objectName) in the current context
-        var counter = membrane.functionCalls.get(contextifyFunctioncall(objectName, currentContext));
-        counter = counter ? counter+ 1 : 1;
-        membrane.functionCalls.set(contextifyFunctioncall(objectName, currentContext), counter);
-
-        // proceeding with function call
-        var fCall, originalThisArg;
-
-        // var processedTarget = membrane.processObjectValue(target);
-        var processedThisArg = membrane.processObjectValue(thisArg);
-
-        // target = processedTarget == undefined ? target : processedTarget;
-        thisArg = processedThisArg == undefined ? thisArg  : processedThisArg;
-
-
-        // TODO: move this to handleSpecialCases function
-        // special cases: Function.prototype.toString cannot be called with Reflect.apply API 
-        if (target == Function.prototype.toString) {
-          fCall = Function.prototype.toString.apply(target);
-        } else {
-          fCall = target.apply(thisArg, argumentsList);
-        }
-        // pop function context from stack
-        membrane.context.pop();
-        console.log("[DEBUG] Call context: " + membrane.context);
-
-        // return the function call result
-        return fCall;
-      }
-    });
-
-    mapWrapped2Unwrapped.set(wrappedTarget, obj);
-    mapUnwrapped2Wrapped.set(obj, wrappedTarget);
-
-    return wrappedTarget;
-  }
-
-  return wrap(initTarget, moduleName);
+  return wrappedTarget;
 }
 
-// var foo = function(){ return "foo"; };
+
+
 // var fooModule = {};
 // fooModule.foo = function(obj) {
 //     console.log("foo");
+//     console.log(JSON.stringify(obj));    
 //     obj.toString = function() { return "a".toString() };
-//     console.log(obj.toString());    
 //     console.log("foo-end");
 // }
 
