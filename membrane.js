@@ -244,12 +244,16 @@ var whitelist =  {
         bind: true
       }
     },
-
+    // Promise:{
+    //   prototype:{
+    //     then: true
+    //   }
+    // }
 };
 var membrane = {};
 membrane.debug = true;
 membrane.trapsDebug = true;
-membrane.contextDebug = false;
+membrane.contextDebug = true;
 
 membrane.mainContext = "<mainContext>"; 
 membrane.context = [];
@@ -307,7 +311,15 @@ membrane.specialFunctions = {
   RegExp: global.RegExp,
   Date: global.Date,
   Error: global.Error,
+  Uint8ClampedArray: global.Uint8ClampedArray,
+  Uint8Array: global.Uint8Array,  
+  Uint16Array: global.Uint16Array,
   Uint32Array: global.Uint32Array,
+  Int8Array: global.Int8Array,
+  Int16Array: global.Int16Array,
+  Int32Array: global.Int32Array,
+  Float32Array: global.Float32Array,
+  Float64Array: global.Float64Array,
   Promise: global.Promise,
   pResolve: global.Promise.resolve,
   functionToString: global.Function.prototype.toString,        
@@ -320,7 +332,7 @@ membrane.handleSpecialBuiltinFunction = function(obj, args, thisValue, objectNam
     if (membrane.trapsDebug) console.log("[DEBUG-handleSpecialBuiltinFunction]: functionToString")
 
     thisValue = membrane.getUnwrappedIfNotPrimitive(thisValue);
-    for (i = 0; i < args.length; i++) {           
+    for (var i = 0; i < args.length; i++) {           
       if (!membrane.isPrimitive(args[i])) {
         args[i] = membrane.getUnwrapped(args[i]);                   
       }
@@ -334,6 +346,14 @@ membrane.handleSpecialBuiltinFunction = function(obj, args, thisValue, objectNam
     result = obj.apply(thisValue, args);  
     return result;              
   } 
+
+  if (obj === membrane.specialFunctions.setTimeout || obj === membrane.specialFunctions.setInterval) {
+    for (i = 0; i < args.length; i++) {           
+      args[i] = membrane.processSetValue(args[i], obj, objectName+"["+i+"]", callerContext, calleeContext);
+    }
+    result = obj.apply(thisValue, args);           
+    return result;              
+  }
 
   // // native constructors, should return a wet value. don't know about wetness of args
   // // this list is getting longer and includes methods, maybe we should separate it
@@ -396,13 +416,39 @@ membrane.processGetValue = function(result, objectName, callerContext, calleeCon
   //   }
   // }
 
+  // if (membrane.isWrapped(result)) {
+  //   if (membrane.debug) { console.log("[DEBUG-processGetValue] Returning already wrapped result: " + result); }      
+  //   return result;
+  // }
+
   return membrane.create(result, objectName);
 }
 
-// handle get operations results (can be used in any trap that behaves like a get operation)
-membrane.processSetValue = function(result) {
-  console.log("TODO: implement set trap");
-  return result;
+// handle get operations results (can be used in any trap that behaves like a set operation)
+membrane.processSetValue = function(value, obj, objectName, callerContext, calleeContext) {
+  if (membrane.debug) console.log("[DEBUG-processSetValue] begin");
+  var finalValue = value;
+  if (!membrane.isPrimitive(value)) {
+
+    if (membrane.whiteList.has(value)) {
+      if (membrane.debug) { console.log("[DEBUG-processGetValue] Returning result from whitelist"); }            
+      return value;
+    }
+
+    var unwrappedValue = membrane.mapWrapped2Unwrapped.get(value);
+    if (unwrappedValue) { // was wrapped already
+      if (membrane.debug) console.log("[DEBUG-processSetValue] value was already wrapped");
+      if (membrane.nativePrototypes.has(obj)) {
+        finalValue = value; // keep result wrapped
+        if (membrane.debug) console.log("[DEBUG-processSetValue] value kept wrapped");
+      } 
+    } 
+    else {
+      finalValue = membrane.create(value, objectName);
+      if (membrane.debug) console.log("[DEBUG-processSetValue] membrane created around unwrapped value");
+    }
+  }
+  return finalValue;
 }
 
 membrane.enterContext = function(objectName) {
@@ -484,7 +530,17 @@ membrane.wrap = function(obj, objectName) {
     },
     defineProperty: function(target, property, descriptor) {
       if (membrane.trapsDebug) console.log("[DEBUG-trap]: defineProperty");
+      //TODO: processSetValue (delegate package error)
+      // when setting a value that is already a proxy, should check whether it is configurable/writable and decide to unwrap it or not
+
+      // if (membrane.isWrapped(descriptor)) {
+      //   if (membrane.debug) console.log("[DEBUG] descriptor is wrapped");
+      //   descriptor = membrane.getUnwrapped(descriptor);
+      // }
+      // descriptor.value = membrane.processSetValue(descriptor.value, obj, "", membrane.currentContext, membrane.currentContext);
       return membrane.original.defineProperty(target, property, descriptor);
+
+      // return wrappedObj;
     },
     has: function(target, prop) {
       if (membrane.trapsDebug) console.log("[DEBUG-trap]: has");
@@ -504,7 +560,8 @@ membrane.wrap = function(obj, objectName) {
     },
     // get trap (used to intercept properties access)
     get: function(target, propertyName, receiver) {
-      if (membrane.trapsDebug) console.log("[DEBUG-trap]: get");
+      if (membrane.trapsDebug) console.log("[DEBUG-trap]: get");  
+      var wasWrapped = false;
 
       // [TODO] check caller context and callee context?
       var callerContext = membrane.currentContext();
@@ -512,19 +569,22 @@ membrane.wrap = function(obj, objectName) {
       var calleeContext = objectName;
       calleeContext = calleeContext.split('.')[0];
       
-      var result = Reflect.get(target, propertyName, receiver);
-      result = membrane.processGetValue(result, String(objectName) + "." + String(propertyName), callerContext, calleeContext);     
-
+      var result = obj[propertyName];
+      
       // read-only/non-configurable objects cannot be wrapped (get trap will throw TypeError in these cases)
-      if (!membrane.isPrimitive(target)) {
-        var targetDesc = membrane.original.getOwnPropertyDescriptor(target, propertyName);
+      if (!membrane.isPrimitive(obj)) {
+        var targetDesc = membrane.original.getOwnPropertyDescriptor(obj, propertyName);
         if (targetDesc && targetDesc.configurable != undefined) {
           if (targetDesc.configurable == false) {
+            if (membrane.isWrapped(result)) {
+              return result;
+            }
             return membrane.getUnwrappedIfNotPrimitive(result);
           }
         }
       }
 
+      result = membrane.processGetValue(result, String(objectName) + "." + String(propertyName), callerContext, calleeContext);     
       return result;
     },
     // apply trap (used to intercept function calls)
@@ -542,18 +602,18 @@ membrane.wrap = function(obj, objectName) {
       // // handle special functions [TODO] rethink need
       if (membrane.specialFunctionsMap.has(obj)) {
           // policy check (if necessary in this function call)
-          if (membrane.debug) console.log("[DEBUG]: Handling special function (apply): ");
+          if (membrane.debug) console.log("[DEBUG]: Handling special function (apply): " + membrane.specialFunctionsMap.get(obj)); 
 
           result = membrane.handleSpecialBuiltinFunction(obj, argumentsList, thisArg, objectName, callerContext, calleeContext, "apply");
           return result;
       }
 
-      var isNativeFunction = membrane.original.functionToString.call(target).includes("[native code]");
+      var isNativeFunction = membrane.original.functionToString.call(obj).includes("[native code]");
 
       // handle argumentsList (wrap or unwrap it before calling function)
       for (var i = 0; i < argumentsList.length; i++) {
         if (!isNativeFunction && (typeof argumentsList[i] === "function")) {
-          argumentsList[i] = membrane.processSetValue(argumentsList[i]);
+          argumentsList[i] = membrane.processSetValue(argumentsList[i], obj, objectName+"["+i+"]", callerContext, calleeContext);
         } else {
           argumentsList[i] = membrane.getUnwrappedIfNotPrimitive(argumentsList[i])
         }
@@ -562,7 +622,7 @@ membrane.wrap = function(obj, objectName) {
       // handle argumentsList (wrap or unwrap it before calling function)
       // native functions are always unwrapped before calling
       if (!isNativeFunction) {
-        thisArg = membrane.processSetValue(thisArg);
+        thisArg = membrane.processSetValue(thisArg, obj, "[this]."+objectName, callerContext, calleeContext);
       } else {
         thisArg = membrane.getUnwrappedIfNotPrimitive(thisArg)
       }
@@ -578,7 +638,6 @@ membrane.wrap = function(obj, objectName) {
       if (membrane.trapsDebug) console.log("[DEBUG-trap]: construct");
       var result, constructorResult;
 
-      // [TODO] check caller context and callee context?
       var callerContext = membrane.currentContext();
       callerContext = callerContext.split('.')[0];
       var calleeContext = objectName;
@@ -597,7 +656,7 @@ membrane.wrap = function(obj, objectName) {
 
       // handle argumentsList (wrap or unwrap it before calling function)
       for (var i = 0; i < argumentsList.length; i++) {
-        argumentsList[i] = membrane.processSetValue(argumentsList[i]);
+        argumentsList[i] = membrane.processSetValue(argumentsList[i], obj, objectName+"["+i+"]", callerContext, calleeContext);
       }
 
       newTarget = membrane.getUnwrappedIfNotPrimitive(newTarget);
@@ -618,13 +677,13 @@ membrane.contextifyFunctioncall = function(functionCall, context) {
   return functionCall + "@" + context;
 } 
 
-membrane.create = function(target, moduleName) {
+membrane.create = function(target, moduleName="defaultModuleName") {
   var wrappedTarget;
 
   if (membrane.isWrapped(target)) return target;
 
-  wrappedTarget = membrane.getWrapped(target);
-  if (wrappedTarget) return wrappedTarget;
+  // wrappedTarget = membrane.getWrapped(target);
+  // if (wrappedTarget) return wrappedTarget;
 
   wrappedTarget = membrane.wrap(target, moduleName);
 
@@ -670,7 +729,7 @@ membrane.setupWhiteList = function() {
 membrane.setupBuiltinFunctions = function() {
   // used to handle special cases of apply/construct trap
   Object.keys(membrane.specialFunctions).forEach(function(k) {
-    membrane.specialFunctionsMap.set(membrane.specialFunctions[k], {global});
+    membrane.specialFunctionsMap.set(membrane.specialFunctions[k], k);
   });
   // membrane.specialFunctionsMap.set(global, global.Array.prototype);
 
@@ -687,45 +746,38 @@ membrane.setupBuiltinFunctions = function() {
   });
 
 
-  // // Proxify native constructors
-  // // we have to wrap them using proxy instead because we want prototype object to be wrapped and 'instanceof' to work
+  // Proxify native constructors
+  // we have to wrap them using proxy instead because we want prototype object to be wrapped and 'instanceof' to work
   // ["Function", "Object", "Array", "String", "Number", "Boolean", "RegExp", "Error"].forEach(function(name){    
-  //   var o = membrane.specialFunctions[name];
-  //   membrane.specialFunctions[name] = membrane.create(o, name+"(built-in)");
-  //   if (!membrane.isWrapped(o.prototype.constructor)) {        
-  //     o.prototype.constructor = membrane.specialFunctions[name];
-  //   }     
-  //   membrane.whiteList.set(membrane.specialFunctions[name],{});
+  //     var originalObject = global[name];
+  //     global[name] = membrane.create(originalObject, "native(" + name + ")");
+  //     if (!membrane.isWrapped(originalObject.prototype.constructor)){       
+  //       originalObject.prototype.constructor = global[name];
+  //     }     
+  //     membrane.nativePrototypes.set(originalObject.prototype, {});
+  //     membrane.whiteList.set(global[name], {});
+
+    // var o = membrane.specialFunctions[name];
+    // membrane.specialFunctions[name] = membrane.create(o, name+"(built-in)");
+    // if (!membrane.isWrapped(o.prototype.constructor)) {        
+    //   o.prototype.constructor = membrane.specialFunctions[name];
+    // }     
+    // // membrane.whiteList.set(membrane.specialFunctions[name],{});
+    // // membrane.nativePrototypes.set(o.prototype, {});
   // });
 }
 
 membrane.setupWhiteList();
 membrane.setupBuiltinFunctions();
 
-// var fooModule = {};
-// fooModule.foo = function(x) {
-//     console.log("foo");
-//     x();
-//     var y = x;
-//     console.log("foo-end");
-//     return y;
-// }
+// var buffer = new ArrayBuffer(16);
+// var int32View = new Int32Array(buffer);
+// var membraneInt32View = membrane.create(int32View, "int32View");
+// membraneInt32View.length
 
-// var barModule = {};
-// barModule.bar = function() {
-//   console.log("callback");
-// }
-
-// var fooMembrane = membrane.create(fooModule, "fooModule");
-// var barMembrane = membrane.create(barModule, "barModule");
-
-// var z = fooMembrane.foo(barMembrane.bar); // barMembrane.bar returned and assigned to z
-// z(); // // implicit call to barModule.bar
-// barMembrane.bar();
-
-// assert.equal(membrane.functionCalls.get("fooModule.foo@<mainContext>"), 1);  
-// assert.equal(membrane.functionCalls.get("barModule.bar@<mainContext>"), 2);  
-// assert.equal(membrane.functionCalls.get("barModule.bar@fooModule.foo"), 1);  
+// var str = String;
+// var membraneStr = membrane.create(str, "strModule");
+// console.log(new membraneStr);
 
 module.exports = membrane;
 
