@@ -33,8 +33,8 @@ DoubleWeakMap.prototype = {
     }
   },
   has: function(obj) {
-    return this.map.has(obj);
-    // return this.map.has(obj) || membrane.original.array_filter.call(this.a, function(o) { return o === obj; }).length > 0;
+    // return this.map.has(obj);
+    return this.map.has(obj) || membrane.original.array_filter.call(this.a, function(o) { return o === obj; }).length > 0;
   },
   getOrCreate: function(obj, def) {
     var result = this.get(obj);
@@ -43,6 +43,9 @@ DoubleWeakMap.prototype = {
       return def;
     }
     return result;
+  },
+  print: function() {
+
   }
 };
 
@@ -251,9 +254,9 @@ var whitelist =  {
     // }
 };
 var membrane = {};
-membrane.debug = true;
-membrane.trapsDebug = true;
-membrane.contextDebug = true;
+membrane.debug = false;
+membrane.trapsDebug = false;
+membrane.contextDebug = false;
 
 membrane.mainContext = "<mainContext>"; 
 membrane.context = [];
@@ -266,7 +269,6 @@ membrane.mapWrapped2Unwrapped = new DoubleWeakMap(); // store map from wrapped o
 // functions/objects that need special handling
 membrane.whiteList = new WeakMap();
 membrane.specialFunctionsMap = new WeakMap();
-membrane.nativePrototypes = new WeakMap();
 
 membrane.original = {
   // some references to original prototype functions used by the membrane
@@ -355,33 +357,33 @@ membrane.handleSpecialBuiltinFunction = function(obj, args, thisValue, objectNam
     return result;              
   }
 
-  // // native constructors, should return a wet value. don't know about wetness of args
-  // // this list is getting longer and includes methods, maybe we should separate it
-  // if (obj === membrane.specialFunctions.Date || obj === membrane.specialFunctions.Object ||
-  //   obj === membrane.specialFunctions.String || obj === membrane.specialFunctions.Number ||
-  //   obj === membrane.specialFunctions.Boolean || obj === membrane.specialFunctions.RegExp ||
-  //   obj === membrane.specialFunctions.Error || obj == membrane.specialFunctions.Uint32Array ||
-  //   obj === membrane.specialFunctions.Promise || obj === membrane.specialFunctions.pResolve) {
+  // native constructors, should return a wet value. don't know about wetness of args
+  // this list is getting longer and includes methods, maybe we should separate it
+  if (obj === membrane.specialFunctions.Date || obj === membrane.specialFunctions.Object ||
+    obj === membrane.specialFunctions.String || obj === membrane.specialFunctions.Number ||
+    obj === membrane.specialFunctions.Boolean || obj === membrane.specialFunctions.RegExp ||
+    obj === membrane.specialFunctions.Error || obj == membrane.specialFunctions.Uint32Array ||
+    obj === membrane.specialFunctions.Promise || obj === membrane.specialFunctions.Function) {
 
-  //   if (trap === "apply")
-  //     return obj.apply(thisValue, args);
-  //   else if (trap === "construct")
-  //     return membrane.makeConstructor(obj, args)();
-  // }
+    if (trap === "apply")
+      return obj.apply(thisValue, args);
+    else if (trap === "construct")
+      return membrane.makeConstructor(obj, args)();
+  }
+  throw Error("Not supported: " + String(obj));
 }
 
-// membrane.makeConstructor = function(obj, args) {
-//   //setup parameters
-//   var paras = "";
-//   for (var i = 0; i < args.length; i++) {
-//     paras = paras + "args[" + i + "],";
-//   }
-//   var code = "new obj(" + paras.slice(0, paras.length - 1) + ");";
-//   var eval = membrane.oEval;
-//   return function() {
-//     return eval(code);
-//   };
-// }
+membrane.makeConstructor = function(obj, args) {
+  //setup parameters
+  var paras = "";
+  for (var i = 0; i < args.length; i++) {
+    paras = paras + "args[" + i + "],";
+  }
+  var code = "new obj(" + paras.slice(0, paras.length - 1) + ");";
+  return function() {
+    return eval(code);
+  };
+}
 
 // checks if an object is a primitive (number, string, null, undefined) or not
 membrane.isPrimitive = function(obj) {
@@ -405,23 +407,15 @@ membrane.processGetValue = function(result, objectName, callerContext, calleeCon
     if (membrane.debug) { console.log("[DEBUG-processGetValue] Returning result from whitelist"); }            
     return result;
   }
-  
-  // if (callerContext == calleeContext) {
-  //   if (!membrane.isWrapped(result)) {
-  //     if (membrane.debug) { console.log("[DEBUG-processGetValue] Returning unwrapped object (from same context)"); }            
-  //     return membrane.getUnwrapped(result);
-  //   } else {  
-  //     if (membrane.debug) { console.log("[DEBUG-processGetValue] Returning wrapped object: " + String(result)); }           
-  //     return membrane.create(result, objectName);
-  //   }
-  // }
 
-  // if (membrane.isWrapped(result)) {
-  //   if (membrane.debug) { console.log("[DEBUG-processGetValue] Returning already wrapped result: " + result); }      
-  //   return result;
-  // }
-
-  return membrane.create(result, objectName);
+  var unwrappedResult = membrane.getUnwrapped(result);
+  if (membrane.isProxy(unwrappedResult)) {
+    if (membrane.debug) { console.log("[DEBUG-processGetValue] Returning unwrapped result "); }            
+    return unwrappedResult;
+  } else {
+    if (membrane.debug) { console.log("[DEBUG-processGetValue] Creating membrane around unwrapped result"); }            
+    return membrane.create(result, objectName);
+  }
 }
 
 // handle get operations results (can be used in any trap that behaves like a set operation)
@@ -438,10 +432,7 @@ membrane.processSetValue = function(value, obj, objectName, callerContext, calle
     var unwrappedValue = membrane.mapWrapped2Unwrapped.get(value);
     if (unwrappedValue) { // was wrapped already
       if (membrane.debug) console.log("[DEBUG-processSetValue] value was already wrapped");
-      if (membrane.nativePrototypes.has(obj)) {
-        finalValue = value; // keep result wrapped
-        if (membrane.debug) console.log("[DEBUG-processSetValue] value kept wrapped");
-      } 
+      return finalValue;
     } 
     else {
       finalValue = membrane.create(value, objectName);
@@ -473,8 +464,8 @@ membrane.exitContext = function() {
 membrane.currentContext = function() { return membrane.context[membrane.context.length-1]; }
 
 // checks if an object is wrapped with a proxy or not
-membrane.isWrapped = function(obj) {
-  return membrane.mapWrapped2Unwrapped.has(obj);
+membrane.isProxy = function(obj) {
+  return membrane.isPrimitive(obj) ? false : membrane.mapWrapped2Unwrapped.has(obj);
 }
 
 membrane.getWrapped = function(obj) {
@@ -487,7 +478,7 @@ membrane.getWrapped = function(obj) {
 // unwraps an object and returns a non-proxied reference of it
 membrane.getUnwrapped = function(obj) {
   var uw = membrane.mapWrapped2Unwrapped.get(obj);
-  return uw? uw : obj;
+  return uw ? uw : obj;
 }
 
 membrane.getUnwrappedIfNotPrimitive = function(obj) {
@@ -533,7 +524,7 @@ membrane.wrap = function(obj, objectName) {
       //TODO: processSetValue (delegate package error)
       // when setting a value that is already a proxy, should check whether it is configurable/writable and decide to unwrap it or not
 
-      // if (membrane.isWrapped(descriptor)) {
+      // if (membrane.isProxy(descriptor)) {
       //   if (membrane.debug) console.log("[DEBUG] descriptor is wrapped");
       //   descriptor = membrane.getUnwrapped(descriptor);
       // }
@@ -576,7 +567,7 @@ membrane.wrap = function(obj, objectName) {
         var targetDesc = membrane.original.getOwnPropertyDescriptor(obj, propertyName);
         if (targetDesc && targetDesc.configurable != undefined) {
           if (targetDesc.configurable == false) {
-            if (membrane.isWrapped(result)) {
+            if (membrane.isProxy(result)) {
               return result;
             }
             return membrane.getUnwrappedIfNotPrimitive(result);
@@ -608,24 +599,25 @@ membrane.wrap = function(obj, objectName) {
           return result;
       }
 
-      var isNativeFunction = membrane.original.functionToString.call(obj).includes("[native code]");
+      // var isNativeFunction = membrane.original.functionToString.call(obj).includes("[native code]");
 
       // handle argumentsList (wrap or unwrap it before calling function)
       for (var i = 0; i < argumentsList.length; i++) {
-        if (!isNativeFunction && (typeof argumentsList[i] === "function")) {
+        // if (!isNativeFunction && (typeof argumentsList[i] === "function")) {
+        if (typeof argumentsList[i] === "function") {
           argumentsList[i] = membrane.processSetValue(argumentsList[i], obj, objectName+"["+i+"]", callerContext, calleeContext);
         } else {
-          argumentsList[i] = membrane.getUnwrappedIfNotPrimitive(argumentsList[i])
+          argumentsList[i] = membrane.getUnwrappedIfNotPrimitive(argumentsList[i]);
         }
       }
 
-      // handle argumentsList (wrap or unwrap it before calling function)
-      // native functions are always unwrapped before calling
-      if (!isNativeFunction) {
-        thisArg = membrane.processSetValue(thisArg, obj, "[this]."+objectName, callerContext, calleeContext);
-      } else {
-        thisArg = membrane.getUnwrappedIfNotPrimitive(thisArg)
-      }
+      // // handle argumentsList (wrap or unwrap it before calling function)
+      // // native functions are always unwrapped before calling
+      // if (!isNativeFunction) {
+      //   thisArg = membrane.processSetValue(thisArg, obj, "[this]."+objectName, callerContext, calleeContext);
+      // } else {
+        thisArg = membrane.getUnwrappedIfNotPrimitive(thisArg);
+      // }
 
       membrane.enterContext(objectName);
       functionCallresult = obj.apply(thisArg, argumentsList);
@@ -650,7 +642,7 @@ membrane.wrap = function(obj, objectName) {
           if (membrane.debug) console.log("[DEBUG]: Handling special function (construct-trap): ");
 
           result = membrane.handleSpecialBuiltinFunction(obj, argumentsList, null, objectName, callerContext, calleeContext, "construct");
-          result = membrane.getUnwrappedIfNotPrimitive(result);
+          // result = membrane.getUnwrappedIfNotPrimitive(result);
           return result;
       }
 
@@ -680,7 +672,7 @@ membrane.contextifyFunctioncall = function(functionCall, context) {
 membrane.create = function(target, moduleName="defaultModuleName") {
   var wrappedTarget;
 
-  if (membrane.isWrapped(target)) return target;
+  if (membrane.isProxy(target)) return target;
 
   // wrappedTarget = membrane.getWrapped(target);
   // if (wrappedTarget) return wrappedTarget;
@@ -731,7 +723,6 @@ membrane.setupBuiltinFunctions = function() {
   Object.keys(membrane.specialFunctions).forEach(function(k) {
     membrane.specialFunctionsMap.set(membrane.specialFunctions[k], k);
   });
-  // membrane.specialFunctionsMap.set(global, global.Array.prototype);
 
   var object = Function.prototype;     
   ["toString"].forEach(function(name) {
@@ -744,40 +735,13 @@ membrane.setupBuiltinFunctions = function() {
       membrane.whiteList.set(object[name], {});
     }      
   });
-
-
-  // Proxify native constructors
-  // we have to wrap them using proxy instead because we want prototype object to be wrapped and 'instanceof' to work
-  // ["Function", "Object", "Array", "String", "Number", "Boolean", "RegExp", "Error"].forEach(function(name){    
-  //     var originalObject = global[name];
-  //     global[name] = membrane.create(originalObject, "native(" + name + ")");
-  //     if (!membrane.isWrapped(originalObject.prototype.constructor)){       
-  //       originalObject.prototype.constructor = global[name];
-  //     }     
-  //     membrane.nativePrototypes.set(originalObject.prototype, {});
-  //     membrane.whiteList.set(global[name], {});
-
-    // var o = membrane.specialFunctions[name];
-    // membrane.specialFunctions[name] = membrane.create(o, name+"(built-in)");
-    // if (!membrane.isWrapped(o.prototype.constructor)) {        
-    //   o.prototype.constructor = membrane.specialFunctions[name];
-    // }     
-    // // membrane.whiteList.set(membrane.specialFunctions[name],{});
-    // // membrane.nativePrototypes.set(o.prototype, {});
-  // });
 }
 
 membrane.setupWhiteList();
 membrane.setupBuiltinFunctions();
 
-// var buffer = new ArrayBuffer(16);
-// var int32View = new Int32Array(buffer);
-// var membraneInt32View = membrane.create(int32View, "int32View");
-// membraneInt32View.length
-
-// var str = String;
-// var membraneStr = membrane.create(str, "strModule");
-// console.log(new membraneStr);
+Function.prototype.toString.call(function(){})
+Function.prototype.toString.call(membrane.create(membrane.create(membrane.create(function(){ Function.prototype.toString(this)}))))
 
 module.exports = membrane;
 

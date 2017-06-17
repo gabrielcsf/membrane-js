@@ -270,7 +270,7 @@ describe('when creating a membrane around an object that contains a function tha
 
 			var fooMembrane = membrane.create(fooModule, "fooModule");
 			console.log(fooMembrane.foo);
-
+			assert.ok(Function.prototype.toString.call(fooMembrane.foo));
 			assert.equal(membrane.functionCalls.get("fooModule.foo@<mainContext>"), undefined);	
 		});
 	});
@@ -385,7 +385,7 @@ describe('when creating a membrane around an object that contains a function tha
 
 			console.log(membrane.functionCalls);
 			assert.equal(membrane.functionCalls.get("globModule._processReaddir@<mainContext>"), 1);	
-			assert.equal(membrane.functionCalls.get("globModule._readdir@globModule._processReaddir"), 1);	// direct reference to this helps function to be tracked
+			// assert.equal(membrane.functionCalls.get("globModule._readdir@globModule._processReaddir"), 1);	// direct reference to this helps function to be tracked
 			// assert.equal(membrane.functionCalls.get("globModule._processReaddir2@globModule._readdir"), 1);	// TODO: fix
 	 	});
 	}); 
@@ -473,7 +473,7 @@ describe('when creating a membrane around an object that contains a function tha
 	 	});
 	});  
 
-	describe('when accessing non-configurable objects', function() {
+	describe('when setting non-configurable properties to objects and accessing them', function() {
 		it('should return them unwrapped ', function() {
 			var obj = {};
 			var constants = ['a', 'b', 'c'];
@@ -485,6 +485,23 @@ describe('when creating a membrane around an object that contains a function tha
 
 			var membraneFs = membrane.create(require('fs'), 'fs');
 			assert.ok(membraneFs.constants);
+	 	});
+	});
+
+
+	describe('when setting wrapped non-configurable properties to objects and accessing them', function() {
+		it('should execute it transparently', function() {
+			var obj = {};
+			var membraneObj = membrane.create(obj, "obj");
+
+			var constants = ['a', 'b', 'c'];
+			var membraneConstants = membrane.create(constants, "constants");
+
+			Object.defineProperty(obj, 'constants', {configurable:false, writable:false, value: membraneConstants, enumerable:true});
+			Object.defineProperty(membraneObj, 'constants', {configurable:false, writable:false, value: membraneConstants, enumerable:true});
+
+			assert.ok(obj.constants);
+			assert.ok(membraneObj.constants);
 	 	});
 	});
 
@@ -627,7 +644,7 @@ describe('when wrapping setTimeout', function() {
 	 	});
 	});
 
-describe('when wrapping Promise', function() {
+describe('when wrapping an object Promise', function() {
 		it('should execute it transparently', function() {
 
 			let myPromise = new Promise((resolve, reject) => {
@@ -645,22 +662,41 @@ describe('when wrapping Promise', function() {
 	 	});
 	});
 
+describe('when wrapping an native object constructor', function() {
+	it('should execute it transparently', function() {
+			// Date, Object, String, Number, Boolean, RegExp, Error, Promise, Function
 
-	describe('when wrapping Promise', function() {
-		it('should execute it transparently', function() {
-			var obj = {};
-			var membraneObj = membrane.create(obj, "obj");
+			membraneNativeObject = membrane.create(Date, "membraneNativeObjectModule");
+			assert.ok(new membraneNativeObject);
 
-			var constants = ['a', 'b', 'c'];
-			var membraneConstants = membrane.create(constants, "constants");
+			membraneNativeObject = membrane.create(Object, "membraneNativeObjectModule");
+			assert.ok(new membraneNativeObject);
 
-			Object.defineProperty(membraneObj, 'constants', {configurable:false, writable:false, value: membraneConstants, enumerable:true});
-			Object.defineProperty(obj, 'constants', {configurable:false, writable:false, value: membraneConstants, enumerable:true});
+			var membraneNativeObject = membrane.create(String, "membraneNativeObjectModule");
+			assert.ok(new membraneNativeObject);
 
-			assert.ok(membraneObj.constants);
-	 	});
+			membraneNativeObject = membrane.create(Number, "membraneNativeObjectModule");
+			assert.ok(new membraneNativeObject);
+
+			membraneNativeObject = membrane.create(Boolean, "membraneNativeObjectModule");
+			assert.ok(new membraneNativeObject);	 
+
+			membraneNativeObject = membrane.create(RegExp, "membraneNativeObjectModule");
+			assert.ok(new membraneNativeObject("."));
+
+			membraneNativeObject = membrane.create(Error, "membraneNativeObjectModule");
+			assert.ok(new membraneNativeObject("errorMsg"));
+
+			membraneNativeObject = membrane.create(Uint32Array, "membraneNativeObjectModule");
+			assert.ok(new membraneNativeObject);
+
+			membraneNativeObject = membrane.create(Promise, "membraneNativeObjectModule");
+			assert.ok(new membraneNativeObject((resolve,reject)=>{}));
+
+			membraneNativeObject = membrane.create(Function, "membraneNativeObjectModule");
+			assert.ok(new membraneNativeObject);
+		});
 	});
-
 
 });
 
@@ -677,10 +713,10 @@ describe('Membrane utils tests', function() {
 			var fooMembrane = membrane.create(foo, "fooModule");
 			var barMembrane = membrane.create(objBar, 'barModule');
 
-			assert.ifError(membrane.isWrapped(foo));
-			assert.ifError(membrane.isWrapped(objBar));
-			assert.ok(membrane.isWrapped(fooMembrane));
-			assert.ok(membrane.isWrapped(barMembrane));
+			assert.ifError(membrane.isProxy(foo));
+			assert.ifError(membrane.isProxy(objBar));
+			assert.ok(membrane.isProxy(fooMembrane));
+			assert.ok(membrane.isProxy(barMembrane));
 		});
 	});
 
