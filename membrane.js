@@ -257,8 +257,9 @@ var membrane = {};
 membrane.debug = false;
 membrane.trapsDebug = false;
 membrane.contextDebug = false;
+membrane.functionCallsDebug = true;
 
-membrane.mainContext = "<mainContext>"; 
+membrane.mainContext = "currentModule"; 
 membrane.context = [];
 membrane.context.push(membrane.mainContext);
 membrane.functionCalls = new Map(); 
@@ -397,7 +398,7 @@ membrane.isEmptyObject = function(obj) {
 
 // handle get operations results (can be used in any trap that behaves like a get operation)
 membrane.processGetValue = function(result, objectName, callerContext, calleeContext) {
-
+  if (membrane.debug) console.log("[DEBUG-processGetValue] Begin");
   if (membrane.isPrimitive(result)) {
     if (membrane.debug) { console.log("[DEBUG-processGetValue] Returning primitive result: " + result); }            
     return result;
@@ -420,23 +421,25 @@ membrane.processGetValue = function(result, objectName, callerContext, calleeCon
 
 // handle get operations results (can be used in any trap that behaves like a set operation)
 membrane.processSetValue = function(value, obj, objectName, callerContext, calleeContext) {
-  if (membrane.debug) console.log("[DEBUG-processSetValue] begin");
+  if (membrane.debug) console.log("[DEBUG-processSetValue] Begin");
   var finalValue = value;
   if (!membrane.isPrimitive(value)) {
+    if (membrane.debug) console.log("[DEBUG-processSetValue] Value is not primitive");
 
     if (membrane.whiteList.has(value)) {
       if (membrane.debug) { console.log("[DEBUG-processGetValue] Returning result from whitelist"); }            
       return value;
     }
-
+    if (membrane.debug) console.log("[DEBUG-processSetValue] Checking if value is wrapped");
     var unwrappedValue = membrane.mapWrapped2Unwrapped.get(value);
     if (unwrappedValue) { // was wrapped already
-      if (membrane.debug) console.log("[DEBUG-processSetValue] value was already wrapped");
+      if (membrane.debug) console.log("[DEBUG-processSetValue] Checking if value is wrapped -> Result: value was already wrapped");
       return finalValue;
     } 
     else {
-      finalValue = membrane.create(value, objectName);
-      if (membrane.debug) console.log("[DEBUG-processSetValue] membrane created around unwrapped value");
+      if (membrane.debug) console.log("[DEBUG-processSetValue] Checking if value is wrapped -> Result: False");
+      if (membrane.debug) console.log("[DEBUG-processSetValue] Value is now wrapped by " + callerContext);
+      finalValue = membrane.create(value, callerContext + ".function");
     }
   }
   return finalValue;
@@ -446,7 +449,10 @@ membrane.enterContext = function(objectName) {
   var currentMembraneContext = membrane.context[membrane.context.length-1];
   var currentContext = currentMembraneContext ? currentMembraneContext : membrane.mainContext;
 
-  if (membrane.contextDebug) console.log("[DEBUG] Calling function/constructor: " + objectName + " from context " + currentContext);
+  if (membrane.functionCallsDebug) {
+    console.log("[DEBUG] Calling function/constructor: " + objectName + "@" + currentContext);
+    //console.log("ctx: " + membrane.context);
+  }
 
   // pushing new function context to stack
   membrane.context.push(objectName);
@@ -551,8 +557,7 @@ membrane.wrap = function(obj, objectName) {
     },
     // get trap (used to intercept properties access)
     get: function(target, propertyName, receiver) {
-      if (membrane.trapsDebug) console.log("[DEBUG-trap]: get");  
-      var wasWrapped = false;
+      if (membrane.trapsDebug) console.log("[DEBUG-trap]: get " + propertyName);  
 
       // [TODO] check caller context and callee context?
       var callerContext = membrane.currentContext();
@@ -574,7 +579,6 @@ membrane.wrap = function(obj, objectName) {
           }
         }
       }
-
       result = membrane.processGetValue(result, String(objectName) + "." + String(propertyName), callerContext, calleeContext);     
       return result;
     },
@@ -605,6 +609,7 @@ membrane.wrap = function(obj, objectName) {
       for (var i = 0; i < argumentsList.length; i++) {
         // if (!isNativeFunction && (typeof argumentsList[i] === "function")) {
         if (typeof argumentsList[i] === "function") {
+          if (membrane.debug) console.log(">>> Processing function parameter..");
           argumentsList[i] = membrane.processSetValue(argumentsList[i], obj, objectName+"["+i+"]", callerContext, calleeContext);
         } else {
           argumentsList[i] = membrane.getUnwrappedIfNotPrimitive(argumentsList[i]);
@@ -740,8 +745,38 @@ membrane.setupBuiltinFunctions = function() {
 membrane.setupWhiteList();
 membrane.setupBuiltinFunctions();
 
-Function.prototype.toString.call(function(){})
-Function.prototype.toString.call(membrane.create(membrane.create(membrane.create(function(){ Function.prototype.toString(this)}))))
+var fooModule = {};
+fooModule.foo = function(x) {
+    console.log("foo");
+    x();
+    var y = x;
+    console.log("foo-end");
+    return y;
+}
+
+var barModule = {};
+barModule.barrr = function() {
+  return barModule.bar;
+}
+barModule.bar = function() {
+  console.log("callback");
+}
+
+var bazModule = {};
+bazModule.baz = function(x) { return x(); };
+
+bazModule.main = function() {
+    var fooMembrane = membrane.create(fooModule, "fooModule");
+    var barMembrane = membrane.create(barModule, "barModule");
+
+    var w = bazModule.baz(-----.barrr);
+    var z = fooMembrane.foo(w); 
+    z(); // implicit call to barModule.bar
+    w(); // another implicit call to barModule.bar
+}
+var bazMemebrane = membrane.create(bazModule, "bazModule");
+bazMemebrane.main();
+console.log(membrane.functionCalls);
 
 module.exports = membrane;
 
