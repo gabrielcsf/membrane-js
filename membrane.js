@@ -259,10 +259,12 @@ membrane.trapsDebug = false;
 membrane.contextDebug = false;
 membrane.functionCallsDebug = true;
 
-membrane.mainContext = "currentModule"; 
+membrane.mainContext = "(mainFunction)";
+membrane.anonymousFunction = "(anonymousFunction)" 
 membrane.context = [];
 membrane.context.push(membrane.mainContext);
-membrane.functionCalls = new Map(); 
+membrane.functionCalls = new Map();
+membrane.permissions = new Map();
 membrane.mapUnwrapped2Wrapped = new DoubleWeakMap(); // store map from original objects to wrapped ones
 membrane.mapWrapped2Unwrapped = new DoubleWeakMap(); // store map from wrapped objects to original ones
 
@@ -307,6 +309,7 @@ membrane.specialFunctions = {
   eval: global.eval,
   Function: global.Function,
   Array: global.Array,
+  ArrayBuffer: global.ArrayBuffer,
   Object: global.Object,
   String: global.String, 
   Number: global.Number, 
@@ -344,7 +347,7 @@ membrane.handleSpecialBuiltinFunction = function(obj, args, thisValue, objectNam
     return result;
   } 
 
-  if (obj === membrane.specialFunctions.Array) {    
+  if (obj === membrane.specialFunctions.Array || obj === membrane.specialFunctions.ArrayBuffer) {    
     if (membrane.trapsDebug) console.log("[DEBUG-handleSpecialBuiltinFunction]: Array object")
     result = obj.apply(thisValue, args);  
     return result;              
@@ -439,7 +442,7 @@ membrane.processSetValue = function(value, obj, objectName, callerContext, calle
     else {
       if (membrane.debug) console.log("[DEBUG-processSetValue] Checking if value is wrapped -> Result: False");
       if (membrane.debug) console.log("[DEBUG-processSetValue] Value is now wrapped by " + callerContext);
-      finalValue = membrane.create(value, callerContext + ".function");
+      finalValue = membrane.create(value, callerContext + ".(anonymousFunction)");
     }
   }
   return finalValue;
@@ -450,9 +453,10 @@ membrane.enterContext = function(objectName) {
   var currentContext = currentMembraneContext ? currentMembraneContext : membrane.mainContext;
 
   if (membrane.functionCallsDebug) {
-    console.log("[DEBUG] Calling function/constructor: " + objectName + "@" + currentContext);
-    //console.log("ctx: " + membrane.context);
+    console.log("[DEBUG] Calling function/constructor: " + objectName + " from " + currentContext);
   }
+
+  membrane.checkPermission(currentContext, objectName);
 
   // pushing new function context to stack
   membrane.context.push(objectName);
@@ -461,6 +465,31 @@ membrane.enterContext = function(objectName) {
   var counter = membrane.functionCalls.get(membrane.contextifyFunctioncall(objectName, currentContext));
   counter = counter ? counter+ 1 : 1;
   membrane.functionCalls.set(membrane.contextifyFunctioncall(objectName, currentContext), counter);
+}
+
+membrane.checkPermission = function(callerFunction, calleeFunction) {
+  var callerModule = callerFunction.split(".")[0];
+  var calleeModule = calleeFunction.split(".")[0];
+
+  if (callerModule == membrane.mainContext) { return; }
+
+  var errorMessage = "Module " + callerModule + " does not have permission to call module " + calleeModule;
+
+  if (!membrane.permissions.has(callerModule)) {
+    // throw new Error(errorMessage);
+    console.log(errorMessage);
+  }
+
+  //var hasPermissions = false;
+  var callerModulePermission = membrane.permissions.get(callerModule);
+  if (callerModulePermission && Array.isArray(callerModulePermission)) {
+    var hasPermissions = callerModulePermission.find(function(e){ return e === calleeModule });
+    if (!hasPermissions) {
+      // throw new Error(errorMessage);
+          console.log(errorMessage);
+
+    }
+  }
 }
 
 membrane.exitContext = function() {
@@ -674,7 +703,7 @@ membrane.contextifyFunctioncall = function(functionCall, context) {
   return functionCall + "@" + context;
 } 
 
-membrane.create = function(target, moduleName="defaultModuleName") {
+membrane.create = function(target, moduleName="defaultModuleName", modulePermissions={}) {
   var wrappedTarget;
 
   if (membrane.isProxy(target)) return target;
@@ -684,6 +713,7 @@ membrane.create = function(target, moduleName="defaultModuleName") {
 
   wrappedTarget = membrane.wrap(target, moduleName);
 
+  membrane.permissions.set(moduleName, modulePermissions);
   membrane.mapWrapped2Unwrapped.set(wrappedTarget, target);
   membrane.mapUnwrapped2Wrapped.set(target, wrappedTarget);
 
@@ -735,7 +765,7 @@ membrane.setupBuiltinFunctions = function() {
     var desc = membrane.original.getOwnPropertyDescriptor(object, name);
     var existingMethod = desc.value;   
     if (typeof existingMethod === "function") { 
-      desc.value = membrane.create(existingMethod, "Function.prototype.toString(built-in)");
+      desc.value = membrane.create(existingMethod, "global(built-in).toString");
       membrane.original.defineProperty(object, name, desc);
       membrane.whiteList.set(object[name], {});
     }      
@@ -745,39 +775,24 @@ membrane.setupBuiltinFunctions = function() {
 membrane.setupWhiteList();
 membrane.setupBuiltinFunctions();
 
-var fooModule = {};
-fooModule.foo = function(x) {
-    console.log("foo");
-    x();
-    var y = x;
-    console.log("foo-end");
-    return y;
-}
+var membraneFailJS = membrane.create(function(exec) {
+   try {
+     return !!exec();
+   } catch(e){
+     return true;
+   }
+}, "_fail.js", ['(mainFunction)']);
 
-var barModule = {};
-barModule.barrr = function() {
-  return barModule.bar;
-}
-barModule.bar = function() {
-  console.log("callback");
-}
 
-var bazModule = {};
-bazModule.baz = function(x) { return x(); };
-
-bazModule.main = function() {
-    var fooMembrane = membrane.create(fooModule, "fooModule");
-    var barMembrane = membrane.create(barModule, "barModule");
-
-    var w = bazModule.baz(-----.barrr);
-    var z = fooMembrane.foo(w); 
-    z(); // implicit call to barModule.bar
-    w(); // another implicit call to barModule.bar
-}
-var bazMemebrane = membrane.create(bazModule, "bazModule");
-bazMemebrane.main();
-console.log(membrane.functionCalls);
+assert.ifError(membraneFailJS(function(){}));
+assert.ifError(membraneFailJS(function(){ return false; }));
+assert.ifError(membraneFailJS(function(){ return NaN; }));
+assert.ifError(membraneFailJS(function(){ return null; }));
+assert.ifError(membraneFailJS(function(){ return Object.defineProperty({}, 'a', { get: function(){ return 7; }}).a != 7; }));
+assert.ok(membraneFailJS(function(){ return Infinity; }));
+assert.ok(membraneFailJS(function(){ return true; }));
 
 module.exports = membrane;
+
 
 

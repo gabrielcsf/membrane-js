@@ -5,6 +5,7 @@ describe('Membrane tests', function() {
 	beforeEach(function() {
 		// initializers
 		membrane.functionCalls = new Map(); 
+		membrane.permissions = new Map();
 	});
 
 	describe('when creating a membrane around a function', function() {
@@ -91,7 +92,7 @@ describe('when creating a membrane around an object that contains a function tha
 			yMembrane.x.foo();
 			dryX.foo();
 
-			assert.equal(membrane.functionCalls.get("y.x.foo@currentModule"), 2);	
+			assert.equal(membrane.functionCalls.get("y.x.foo@(mainFunction)"), 2);	
 		});
 	});
 
@@ -114,7 +115,7 @@ describe('when creating a membrane around an object that contains a function tha
 				assert.notEqual(obj.foo, wrappedObj.foo); // original instance and proxy are different objects
 				assert.equal(obj.foo(fruits), wrappedObj.foo(fruits)); // equal results
 
-				assert.equal(membrane.functionCalls.get("fooModule.foo@currentModule"), 1);	
+				assert.equal(membrane.functionCalls.get("fooModule.foo@(mainFunction)"), 1);	
 
 		});
 	});
@@ -140,7 +141,7 @@ describe('when creating a membrane around an object that contains a function tha
 
 			var membraneTest = membrane.create(testModule, "testModule");
 			membraneTest.execute();
-			assert.equal(membrane.functionCalls.get("testModule.execute@currentModule"), 1);	
+			assert.equal(membrane.functionCalls.get("testModule.execute@(mainFunction)"), 1);	
 		});
 	});
 
@@ -149,7 +150,7 @@ describe('when creating a membrane around an object that contains a function tha
 			var membraneOS = membrane.create(require('os'), "osModule");
 			console.log(membraneOS.type());
 
-			assert.equal(membrane.functionCalls.get("osModule.type@currentModule"), 1);	
+			assert.equal(membrane.functionCalls.get("osModule.type@(mainFunction)"), 1);	
 		});
 	});
 
@@ -162,7 +163,7 @@ describe('when creating a membrane around an object that contains a function tha
 			var fooMembrane = membrane.create(fooModule, "fooModule");
 			fooMembrane.foo();
 
-			assert.equal(membrane.functionCalls.get("fooModule.foo@currentModule"), 1);	
+			assert.equal(membrane.functionCalls.get("fooModule.foo@(mainFunction)"), 1);	
 		});
 	});
 
@@ -177,8 +178,8 @@ describe('when creating a membrane around an object that contains a function tha
 			var fooMembrane = membrane.create(fooModule, "fooModule");
 			fooMembrane.foo();
 
-			assert.equal(membrane.functionCalls.get("fooModule.foo@currentModule"), 1);	
-			assert.equal(membrane.functionCalls.get("fooModule.x@currentModule"), undefined);	// local functions and function passed as parameters are not wrapped
+			assert.equal(membrane.functionCalls.get("fooModule.foo@(mainFunction)"), 1);	
+			assert.equal(membrane.functionCalls.get("fooModule.x@(mainFunction)"), undefined);	// local functions and function passed as parameters are not wrapped
 		});
 	});
 
@@ -199,7 +200,7 @@ describe('when creating a membrane around an object that contains a function tha
 			var wrappedTestModule = membrane.create(testModule, "testModule");
 			wrappedTestModule.execute();
 
-			assert.equal(membrane.functionCalls.get("testModule.execute@currentModule"), 1);	
+			assert.equal(membrane.functionCalls.get("testModule.execute@(mainFunction)"), 1);	
 			assert.equal(membrane.functionCalls.get("fs.readdir@testModule.execute"), 1);	
 
 		});
@@ -220,8 +221,8 @@ describe('when creating a membrane around an object that contains a function tha
 					console.log("callback");
 				});
 
-			  assert.equal(membrane.functionCalls.get("fooModule.foo@currentModule"), 2);	
-			  assert.equal(membrane.functionCalls.get("fooModule.x@currentModule"), undefined);	// local functions and function passed as parameters are not wrapped
+			  assert.equal(membrane.functionCalls.get("fooModule.foo@(mainFunction)"), 2);	
+			  assert.equal(membrane.functionCalls.get("fooModule.x@(mainFunction)"), undefined);	// local functions and function passed as parameters are not wrapped
 		});
 	});
 
@@ -283,10 +284,10 @@ describe('when creating a membrane around an object that contains a function tha
 		// http.get will be executed inside the module bar ctx, although it is executed by a function from module foo (passed as argument to bar)
 		fooMembrane.run(); 
 
-			assert.equal(membrane.functionCalls.get("fooModule.run@currentModule"), 1);
+			assert.equal(membrane.functionCalls.get("fooModule.run@(mainFunction)"), 1);
 			assert.equal(membrane.functionCalls.get("barModule.bar@fooModule.run"), 1);
-			assert.equal(membrane.functionCalls.get("fooModule.function@barModule.bar"), 1);
-			assert.equal(membrane.functionCalls.get("httpModule.get@fooModule.function"), 1);
+			assert.equal(membrane.functionCalls.get("fooModule.(anonymousFunction)@barModule.bar"), 1);
+			assert.equal(membrane.functionCalls.get("httpModule.get@fooModule.(anonymousFunction)"), 1);
 		});
 	});
 
@@ -317,11 +318,11 @@ describe('when creating a membrane around an object that contains a function tha
 			var fooMembrane = membrane.create(fooModule, "fooModule");
 			fooMembrane.run();
 
-			assert.equal(membrane.functionCalls.get("fooModule.run@currentModule"), 1);
+			assert.equal(membrane.functionCalls.get("fooModule.run@(mainFunction)"), 1);
 			assert.equal(membrane.functionCalls.get("barModule.bar@fooModule.run"), 1);
 			assert.equal(membrane.functionCalls.get("bazModule.baz@fooModule.run"), 1);
-			assert.equal(membrane.functionCalls.get("fooModule.function@bazModule.baz"), 1);
-			assert.equal(membrane.functionCalls.get("httpModule.get@fooModule.function"), 1);
+			assert.equal(membrane.functionCalls.get("fooModule.(anonymousFunction)@bazModule.baz"), 1);
+			assert.equal(membrane.functionCalls.get("httpModule.get@fooModule.(anonymousFunction)"), 1);
 
 		});
 	});
@@ -354,12 +355,12 @@ describe('when creating a membrane around an object that contains a function tha
 			fooMembrane.run();
 			fooMembrane.send();
 
-			assert.equal(membrane.functionCalls.get("fooModule.run@currentModule"), 1);
+			assert.equal(membrane.functionCalls.get("fooModule.run@(mainFunction)"), 1);
 			assert.equal(membrane.functionCalls.get("barModule.bar@fooModule.run"), 1);
 			assert.equal(membrane.functionCalls.get("bazModule.baz@fooModule.run"), 1);
-			assert.equal(membrane.functionCalls.get("fooModule.function@bazModule.baz"), 1);
-			assert.equal(membrane.functionCalls.get("httpModule.get@fooModule.function"), 1);
-			assert.equal(membrane.functionCalls.get("fooModule.send@currentModule"), 1);
+			assert.equal(membrane.functionCalls.get("fooModule.(anonymousFunction)@bazModule.baz"), 1);
+			assert.equal(membrane.functionCalls.get("httpModule.get@fooModule.(anonymousFunction)"), 1);
+			assert.equal(membrane.functionCalls.get("fooModule.send@(mainFunction)"), 1);
 			assert.equal(membrane.functionCalls.get("httpModule.get@fooModule.send"), 1);
 		});
 	});
@@ -386,7 +387,7 @@ describe('when creating a membrane around an object that contains a function tha
 		// in this case, the function call to httpModule should be blocked because bModule does not have http capabilities  
 		bMembrane.foo(aMembrane.a, "secret"); 
 
-		assert.equal(membrane.functionCalls.get("bModule.foo@currentModule"), 1);
+		assert.equal(membrane.functionCalls.get("bModule.foo@(mainFunction)"), 1);
 		assert.equal(membrane.functionCalls.get("aModule.a@bModule.foo"), 1);
 		assert.equal(membrane.functionCalls.get("httpModule.get@bModule.foo"), 1);
 		});
@@ -413,7 +414,7 @@ describe('when creating a membrane around an object that contains a function tha
 		// in this case, the function call to httpModule will not be blocked because the call comes indirectly through aModule
 		bMembrane.foo(aMembrane.a, "secret"); 
 
-		assert.equal(membrane.functionCalls.get("bModule.foo@currentModule"), 1);
+		assert.equal(membrane.functionCalls.get("bModule.foo@(mainFunction)"), 1);
 		assert.equal(membrane.functionCalls.get("aModule.a@bModule.foo"), 1);
 		assert.equal(membrane.functionCalls.get("httpModule.get@aModule.a"), 1);
 	
@@ -426,7 +427,7 @@ describe('when creating a membrane around an object that contains a function tha
 			var g =  membrane.create(global, "global");
 			g.console.log("log");
 
-			assert.equal(membrane.functionCalls.get("global.console.log@currentModule"), 1);
+			assert.equal(membrane.functionCalls.get("global.console.log@(mainFunction)"), 1);
 		});
 	});
 
@@ -438,7 +439,7 @@ describe('when creating a membrane around an object that contains a function tha
 			var fooMembrane = membrane.create(fooModule, "fooModule");
 			console.log(fooMembrane.foo);
 			assert.ok(Function.prototype.toString.call(fooMembrane.foo));
-			assert.equal(membrane.functionCalls.get("fooModule.foo@currentModule"), undefined);	
+			assert.equal(membrane.functionCalls.get("fooModule.foo@(mainFunction)"), undefined);	
 		});
 	});
 
@@ -457,8 +458,8 @@ describe('when creating a membrane around an object that contains a function tha
 			fooMembrane.bar();
 			fooMembrane.foo();
 
-			assert.equal(membrane.functionCalls.get("fooModule.bar@currentModule"), 1);	
-			assert.equal(membrane.functionCalls.get("fooModule.foo@currentModule"), 1);	// function call this.foo() is not supposed to be tracked
+			assert.equal(membrane.functionCalls.get("fooModule.bar@(mainFunction)"), 1);	
+			assert.equal(membrane.functionCalls.get("fooModule.foo@(mainFunction)"), 1);	// function call this.foo() is not supposed to be tracked
 
 		});
 	});
@@ -475,7 +476,7 @@ describe('when creating a membrane around an object that contains a function tha
 			var fooMembrane = membrane.create(fooModule, "fooModule");
 			fooMembrane.bar[0]();
 
-			assert.equal(membrane.functionCalls.get("fooModule.bar.0@currentModule"), 1);	
+			assert.equal(membrane.functionCalls.get("fooModule.bar.0@(mainFunction)"), 1);	
 		});
 	});
 
@@ -493,7 +494,7 @@ describe('when creating a membrane around an object that contains a function tha
 			var barMembrane = membrane.create(barModule, "barModule");
 			barMembrane.bar[0]();
 
-			assert.equal(membrane.functionCalls.get("fooModule.foo@currentModule"), 1);	
+			assert.equal(membrane.functionCalls.get("fooModule.foo@(mainFunction)"), 1);	
 		});
 	});
 
@@ -521,7 +522,7 @@ describe('when creating a membrane around an object that contains a function tha
 			const dateMembrane = membrane.create(date, "dateModule");
 			assert.ok(dateMembrane.getDate());
 
-			assert.equal(membrane.functionCalls.get("dateModule.getDate@currentModule"), 1);	
+			assert.equal(membrane.functionCalls.get("dateModule.getDate@(mainFunction)"), 1);	
 	 	});
 	}); 
 
@@ -551,7 +552,7 @@ describe('when creating a membrane around an object that contains a function tha
 			membraneGlob._processReaddir("test");
 
 			console.log(membrane.functionCalls);
-			assert.equal(membrane.functionCalls.get("globModule._processReaddir@currentModule"), 1);	
+			assert.equal(membrane.functionCalls.get("globModule._processReaddir@(mainFunction)"), 1);	
 			// assert.equal(membrane.functionCalls.get("globModule._readdir@globModule._processReaddir"), 1);	// direct reference to this helps function to be tracked
 			// assert.equal(membrane.functionCalls.get("globModule._processReaddir2@globModule._readdir"), 1);	// TODO: fix
 	 	});
@@ -598,10 +599,10 @@ describe('when creating a membrane around an object that contains a function tha
 				globMembrane._processReaddir();
 				barMembrane.bar();
 
-			 assert.equal(membrane.functionCalls.get("fooModule.foo@currentModule"), 1);	
-			 assert.equal(membrane.functionCalls.get("barModule.bar@currentModule"), 1);	
+			 assert.equal(membrane.functionCalls.get("fooModule.foo@(mainFunction)"), 1);	
+			 assert.equal(membrane.functionCalls.get("barModule.bar@(mainFunction)"), 1);	
 			 assert.equal(membrane.functionCalls.get("barModule.bar@fooModule.foo"), 1);	
-			 // assert.equal(membrane.functionCalls.get("globModule._processReaddir@currentModule"), 1);	
+			 // assert.equal(membrane.functionCalls.get("globModule._processReaddir@(mainFunction)"), 1);	
 		});
 	});
 
@@ -635,7 +636,7 @@ describe('when creating a membrane around an object that contains a function tha
 			      console.log("file: " + items[i]);
 			    }
 			});
-			// assert.equal(membrane.functionCalls.get("fs.readdir@currentModule"), 2);	// TODO: finish implementation of getOwnPropertyDescriptor trap
+			// assert.equal(membrane.functionCalls.get("fs.readdir@(mainFunction)"), 2);	// TODO: finish implementation of getOwnPropertyDescriptor trap
 
 	 	});
 	});  
@@ -681,7 +682,7 @@ describe('when creating a membrane around an object that contains a function tha
 		     } catch(e){
 		       return true;
 		     }
-  		}, "_fail.js");
+  		}, "_fail.js", ['(mainFunction)']);
 
 
 			assert.ifError(membraneFailJS(function(){}));
@@ -694,8 +695,8 @@ describe('when creating a membrane around an object that contains a function tha
 		  // assert.ok(membraneFailJS(function(){ throw new Error(); })) // TODO: investigate
 
 		  console.log(membrane.functionCalls);
-			assert.equal(membrane.functionCalls.get("_fail.js@currentModule"), 7);
-			assert.equal(membrane.functionCalls.get("currentModule.function@_fail.js"), 7);	
+			assert.equal(membrane.functionCalls.get("_fail.js@(mainFunction)"), 7);
+			assert.equal(membrane.functionCalls.get("(mainFunction).(anonymousFunction)@_fail.js"), 7);	
 	
 	 	});
 	});
@@ -719,8 +720,8 @@ describe('when creating a membrane around an object that contains a function tha
 
 			assert.ok(descriptorMembrane);
 			console.log(membrane.functionCalls);
-			assert.equal(membrane.functionCalls.get("_fail.js@currentModule"), 1);	
-			assert.equal(membrane.functionCalls.get("currentModule.function@_fail.js"), 1);	
+			assert.equal(membrane.functionCalls.get("_fail.js@(mainFunction)"), 1);	
+			assert.equal(membrane.functionCalls.get("(mainFunction).(anonymousFunction)@_fail.js"), 1);	
 
 	 	});
 	});
@@ -746,9 +747,9 @@ describe('when creating a membrane around an object that contains a function tha
 
 			console.log(membrane.functionCalls);
 
-			assert.equal(membrane.functionCalls.get("fooModule.foo@currentModule"), 2);
-			assert.equal(membrane.functionCalls.get("fooModule.bar@currentModule"), 1);
-			assert.equal(membrane.functionCalls.get("barModule.bar@currentModule"), 1);
+			assert.equal(membrane.functionCalls.get("fooModule.foo@(mainFunction)"), 2);
+			assert.equal(membrane.functionCalls.get("fooModule.bar@(mainFunction)"), 1);
+			assert.equal(membrane.functionCalls.get("barModule.bar@(mainFunction)"), 1);
 	 	});
 	});
 
@@ -763,8 +764,8 @@ describe('when creating a membrane around an object that contains a function tha
 			fooObj.foo();
 
 			console.log(membrane.functionCalls);
-			assert.equal(membrane.functionCalls.get("fooModule@currentModule"), 1); // new (constructor)
-			assert.equal(membrane.functionCalls.get("fooModule.foo@currentModule"), 1); // function call
+			assert.equal(membrane.functionCalls.get("fooModule@(mainFunction)"), 1); // new (constructor)
+			assert.equal(membrane.functionCalls.get("fooModule.foo@(mainFunction)"), 1); // function call
 
 	 	});
 	});
@@ -792,9 +793,9 @@ describe('when creating a membrane around an object that contains a function tha
 				z();  // implicit call to barModule.bar
 				barMembrane.bar(); // explicit call to barModule.bar
 
-			 assert.equal(membrane.functionCalls.get("fooModule.foo@currentModule"), 1);	
+			 assert.equal(membrane.functionCalls.get("fooModule.foo@(mainFunction)"), 1);	
 			 assert.equal(membrane.functionCalls.get("barModule.bar@fooModule.foo"), 1);	
-			 assert.equal(membrane.functionCalls.get("barModule.bar@currentModule"), 2);	
+			 assert.equal(membrane.functionCalls.get("barModule.bar@(mainFunction)"), 2);	
 	 	});
 	});
 
@@ -868,12 +869,12 @@ describe('when creating a membrane around an object that contains a function tha
 			    z(); // implicit call to barModule.bar
 			    w(); // another implicit call to barModule.bar
 			}
-			var bazMemebrane = membrane.create(bazModule, "bazModule");
-			bazMemebrane.main();
+			var bazMembrane = membrane.create(bazModule, "bazModule");
+			bazMembrane.main();
 
 			 assert.equal(membrane.functionCalls.get("fooModule.foo@bazModule.main"), 1);	
-			 assert.equal(membrane.functionCalls.get("barModule.bar@fooModule.foo"), 1);	
-			 assert.equal(membrane.functionCalls.get("barModule.bar@bazModule.main"), 2);	
+			 assert.equal(membrane.functionCalls.get("barModule.barrr@bazModule.main"), 3);	
+			 assert.equal(membrane.functionCalls.get("barModule.barrr@fooModule.foo"), 1);	
 	 	});
 	});
 
@@ -886,8 +887,8 @@ describe('when wrapping setTimeout', function() {
 			var setTimeoutMembrane = membrane.create(setTimeout, "setTimeoutModule");
 			setTimeoutMembrane(function(){ fooMembrane(); }, 1000);  // implict call to foo()
 
-			assert.equal(membrane.functionCalls.get("setTimeoutModule.setTimeout@currentModule"), undefined);	
-			assert.equal(membrane.functionCalls.get("fooModule@currentModule"), 1); // implicit call to foo()
+			assert.equal(membrane.functionCalls.get("setTimeoutModule.setTimeout@(mainFunction)"), undefined);	
+			assert.equal(membrane.functionCalls.get("fooModule@(mainFunction)"), 1); // implicit call to foo()
 
 	 	});
 	});
@@ -946,7 +947,68 @@ describe('when wrapping an native object constructor', function() {
 		});
 	});
 
+	describe('when trying to execute a function from fs (for which it does not have permission) that was returned by another module', function() {
+		it('fooModule should be interruputed', function() {
+		var fooModule = {};
+		fooModule.foo = function(x) {
+		  var y = x();
+		  y.readdir("/Users", function(err, items) {
+		      for (var i=0; i<items.length; i++) {
+		        console.log("file: " + items[i]);
+		      }
+		  });
+		}
+
+		var barModule = {};
+		barModule.bar = function() {
+		  
+		  return fsMembrane;
+		}
+
+		var fsMembrane = membrane.create(require("fs"), "fs", ["fs"]);
+		var fooMembrane = membrane.create(fooModule, "fooModule", ["barModule"]);
+		var barMembrane = membrane.create(barModule, "barModule", ["fs"]);
+
+		var bazModule = {};
+		bazModule.main = function() {
+		    fooMembrane.foo(barMembrane.bar); 
+		}
+		var bazMembrane = membrane.create(bazModule, "bazModule", ["fooModule"]);
+		bazMembrane.main();
+		// assert.throws(function() { bazMembrane.main() }, Error);
+
+	});
+  });
+
+	describe('when trying to execute a function from fs that was returned by another module', function() {
+		it('fooModule should execute normally', function() {
+		var fooModule = {};
+		fooModule.foo = function(x) {
+		  var y = x();
+		  y.readdir("/Users", function(){});
+		}
+
+		var barModule = {};
+		barModule.bar = function() {
+		  var fsMembrane = membrane.create(require("fs"), "fs", []);
+		  return fsMembrane;
+		}
+
+		var bazModule = {};
+		bazModule.main = function() {
+				var fooMembrane = membrane.create(fooModule, "fooModule", ["barModule", "fs"]);
+				var barMembrane = membrane.create(barModule, "barModule", []);
+		    fooMembrane.foo(barMembrane.bar); 
+		}
+		var bazMembrane = membrane.create(bazModule, "bazModule", ["fooModule"]);
+		bazMembrane.main();
+		// assert.doesNotThrow(function() { bazMembrane.main() }, Error);
+
+	});
+  });
+
 });
+
 
 describe('Membrane utils tests', function() {
 
@@ -990,6 +1052,7 @@ describe('Membrane utils tests', function() {
 			assert.equal(membrane.isPrimitive(new Boolean), false);
 			assert.equal(membrane.isPrimitive(new Date), false);
 			assert.equal(membrane.isPrimitive(new Error), false);
+			assert.equal(membrane.isPrimitive(new ArrayBuffer), false);
 			assert.equal(membrane.isPrimitive(Object.create(null)), false);
 		});
 	});
