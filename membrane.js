@@ -367,14 +367,15 @@ membrane.handleSpecialBuiltinFunction = function(obj, args, thisValue, objectNam
     obj === membrane.specialFunctions.String || obj === membrane.specialFunctions.Number ||
     obj === membrane.specialFunctions.Boolean || obj === membrane.specialFunctions.RegExp ||
     obj === membrane.specialFunctions.Error || obj == membrane.specialFunctions.Uint32Array ||
-    obj === membrane.specialFunctions.Promise || obj === membrane.specialFunctions.Function) {
+    obj === membrane.specialFunctions.Promise || membrane.specialFunctions.pResolve || 
+    obj === membrane.specialFunctions.Function) {
 
     if (trap === "apply")
       return obj.apply(thisValue, args);
     else if (trap === "construct")
       return membrane.makeConstructor(obj, args)();
   }
-  throw Error("Not supported: " + String(obj));
+  throw Error("[MEMBRANE] Not supported: " + String(obj));
 }
 
 membrane.makeConstructor = function(obj, args) {
@@ -403,7 +404,7 @@ membrane.isEmptyObject = function(obj) {
 membrane.processGetValue = function(result, objectName, callerContext, calleeContext) {
   if (membrane.debug) console.log("[DEBUG-processGetValue] Begin");
   if (membrane.isPrimitive(result)) {
-    if (membrane.debug) { console.log("[DEBUG-processGetValue] Returning primitive result: " + result); }            
+    if (membrane.debug) { console.log("[DEBUG-processGetValue] Returning primitive result: "); console.log(result); }            
     return result;
   }
 
@@ -453,10 +454,11 @@ membrane.enterContext = function(objectName) {
   var currentContext = currentMembraneContext ? currentMembraneContext : membrane.mainContext;
 
   if (membrane.functionCallsDebug) {
-    console.log("[DEBUG] Calling function/constructor: " + objectName + " from " + currentContext);
+    console.log("[MEMBRANE] FUNCTION-CALL FROM <" + currentContext + "> TO <" + objectName + ">");
+    //console.log("[DEBUG] Calling function/constructor: " + objectName + " from " + currentContext);
   }
 
-  membrane.checkPermission(currentContext, objectName);
+  //membrane.checkPermission(currentContext, objectName);
 
   // pushing new function context to stack
   membrane.context.push(objectName);
@@ -468,6 +470,7 @@ membrane.enterContext = function(objectName) {
 }
 
 membrane.checkPermission = function(callerFunction, calleeFunction) {
+  console.log("Check Permission: " + callerFunction + " --- " + calleeFunction);
   var callerModule = callerFunction.split(".")[0];
   var calleeModule = calleeFunction.split(".")[0];
 
@@ -708,6 +711,19 @@ membrane.create = function(target, moduleName="defaultModuleName", modulePermiss
 
   if (membrane.isProxy(target)) return target;
 
+  if (target instanceof membrane.specialFunctions.ArrayBuffer || 
+      target instanceof membrane.specialFunctions.Uint8ClampedArray ||
+      target instanceof membrane.specialFunctions.Uint8Array ||
+      target instanceof membrane.specialFunctions.Uint16Array ||
+      target instanceof membrane.specialFunctions.Uint32Array ||
+      target instanceof membrane.specialFunctions.Int8Array ||
+      target instanceof membrane.specialFunctions.Int16Array ||
+      target instanceof membrane.specialFunctions.Int32Array ||
+      target instanceof membrane.specialFunctions.Float32Array ||
+      target instanceof membrane.specialFunctions.Float64Array)  { 
+    return target; 
+  }
+
   // wrappedTarget = membrane.getWrapped(target);
   // if (wrappedTarget) return wrappedTarget;
 
@@ -775,23 +791,23 @@ membrane.setupBuiltinFunctions = function() {
 membrane.setupWhiteList();
 membrane.setupBuiltinFunctions();
 
-var membraneFailJS = membrane.create(function(exec) {
-   try {
-     return !!exec();
-   } catch(e){
-     return true;
-   }
-}, "_fail.js", ['(mainFunction)']);
+//------------------------------------------ RUN EXAMPLES HERE ------------------------------------------
+var buffer = new ArrayBuffer(16);
+var buffer2 = membrane.create(buffer, "arrayBuffer");
 
+console.log(buffer);
+console.log(buffer instanceof ArrayBuffer);
+console.log(buffer2);
+console.log(buffer2 instanceof ArrayBuffer);
 
-assert.ifError(membraneFailJS(function(){}));
-assert.ifError(membraneFailJS(function(){ return false; }));
-assert.ifError(membraneFailJS(function(){ return NaN; }));
-assert.ifError(membraneFailJS(function(){ return null; }));
-assert.ifError(membraneFailJS(function(){ return Object.defineProperty({}, 'a', { get: function(){ return 7; }}).a != 7; }));
-assert.ok(membraneFailJS(function(){ return Infinity; }));
-assert.ok(membraneFailJS(function(){ return true; }));
+// Create a couple of views
+var view1 = new DataView(buffer);
+var view2 = new DataView(buffer,12,4); //from byte 12 for the next 4 bytes
+view1.setInt8(12, 42); // put 42 in slot 8
 
+console.log(view2.getInt8(0));
+
+//------------------------------------------
 module.exports = membrane;
 
 
