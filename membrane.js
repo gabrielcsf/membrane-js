@@ -254,9 +254,9 @@ var whitelist =  {
     // }
 };
 var membrane = {};
-membrane.debug = false;
-membrane.trapsDebug = false;
-membrane.contextDebug = false;
+membrane.debug = true;
+//membrane.trapsDebug = true;
+membrane.contextDebug = true;
 membrane.functionCallsDebug = true;
 
 membrane.mainContext = "(mainFunction)";
@@ -298,7 +298,7 @@ membrane.original = {
   array_map: Array.prototype.map,
   string_split: String.prototype.split,
   originalString: String,
-  originalEval: eval,
+  originalEval: global.eval,
 };
 
 membrane.specialFunctions = {
@@ -367,10 +367,10 @@ membrane.handleSpecialBuiltinFunction = function(obj, args, thisValue, objectNam
     obj === membrane.specialFunctions.String || obj === membrane.specialFunctions.Number ||
     obj === membrane.specialFunctions.Boolean || obj === membrane.specialFunctions.RegExp ||
     obj === membrane.specialFunctions.Error || obj == membrane.specialFunctions.Uint32Array ||
-    obj === membrane.specialFunctions.Promise || membrane.specialFunctions.pResolve || 
-    obj === membrane.specialFunctions.Function) {
+    obj === membrane.specialFunctions.Promise || obj == membrane.specialFunctions.pResolve || 
+    obj === membrane.specialFunctions.Function || obj == membrane.specialFunctions.eval) {
 
-    if (trap === "apply")
+    if (trap === "apply") 
       return obj.apply(thisValue, args);
     else if (trap === "construct")
       return membrane.makeConstructor(obj, args)();
@@ -379,14 +379,18 @@ membrane.handleSpecialBuiltinFunction = function(obj, args, thisValue, objectNam
 }
 
 membrane.makeConstructor = function(obj, args) {
+  console.log("ARGS: " + args);
   //setup parameters
   var paras = "";
-  for (var i = 0; i < args.length; i++) {
-    paras = paras + "args[" + i + "],";
+  if (args != undefined) {
+    for (var i = 0; i < args.length; i++) {
+      paras = paras + "args[" + i + "],";
+    }
   }
-  var code = "new obj(" + paras.slice(0, paras.length - 1) + ");";
+  var params = paras.slice(0, paras.length - 1);
+  var code = "new Object(" + params + ");";
   return function() {
-    return eval(code);
+    return membrane.original.originalEval(code);
   };
 }
 
@@ -792,20 +796,24 @@ membrane.setupWhiteList();
 membrane.setupBuiltinFunctions();
 
 //------------------------------------------ RUN EXAMPLES HERE ------------------------------------------
-var buffer = new ArrayBuffer(16);
-var buffer2 = membrane.create(buffer, "arrayBuffer");
+// var buffer = new ArrayBuffer(16);
+// var buffer2 = membrane.create(buffer, "arrayBuffer");
 
-console.log(buffer);
-console.log(buffer instanceof ArrayBuffer);
-console.log(buffer2);
-console.log(buffer2 instanceof ArrayBuffer);
+// console.log(buffer);
+// console.log(buffer instanceof ArrayBuffer);
+// console.log(buffer2);
+// console.log(buffer2 instanceof ArrayBuffer);
 
-// Create a couple of views
-var view1 = new DataView(buffer);
-var view2 = new DataView(buffer,12,4); //from byte 12 for the next 4 bytes
-view1.setInt8(12, 42); // put 42 in slot 8
+// // Create a couple of views
+// var view1 = new DataView(buffer);
+// var view2 = new DataView(buffer,12,4); //from byte 12 for the next 4 bytes
+// view1.setInt8(12, 42); // put 42 in slot 8
 
-console.log(view2.getInt8(0));
+// console.log(view2.getInt8(0));
+
+// eval = membrane.create(eval, "eval");
+// eval("console.log(\'using eval\')");
+// global.eval("console.log(\'using global eval\')");
 
 //------------------------------------------
 module.exports = membrane;

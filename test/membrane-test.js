@@ -931,7 +931,7 @@ describe('when wrapping an native object constructor', function() {
 			assert.ok(new membraneNativeObject);	 
 
 			membraneNativeObject = membrane.create(RegExp, "membraneNativeObjectModule");
-			assert.ok(new membraneNativeObject("."));
+			assert.ok(new membraneNativeObject("/(?:)/"));
 
 			membraneNativeObject = membrane.create(Error, "membraneNativeObjectModule");
 			assert.ok(new membraneNativeObject("errorMsg"));
